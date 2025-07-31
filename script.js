@@ -35,7 +35,7 @@ const Storage = {
 };
 
 // =====================================
-// GESTION DES DONNÉES
+// GESTION DES DONNÉES AVEC CONGÉS
 // =====================================
 const TimeData = {
   getAll: () => Storage.get('timetrack_data') || {},
@@ -68,6 +68,33 @@ const TimeData = {
     }
     
     return true;
+  },
+  
+  // Nouvelle fonction pour créer un jour de congé
+  createHolidayDay: async (date, note = 'Congé') => {
+    const holidayData = {
+      date: date,
+      start: '09:00',
+      end: '17:00', 
+      pause: 60,
+      note: note,
+      type: 'holiday' // Marquer comme jour de congé
+    };
+    
+    await TimeData.saveDay(date, holidayData);
+    return holidayData;
+  },
+  
+  // Vérifier si un jour est un congé
+  isHoliday: (date) => {
+    const data = TimeData.getAll()[date];
+    return data && data.type === 'holiday';
+  },
+  
+  // Vérifier si c'est un weekend
+  isWeekend: (date) => {
+    const day = new Date(date).getDay();
+    return day === 0 || day === 6; // Dimanche = 0, Samedi = 6
   },
   
   getRange: async (startDate, endDate) => {
@@ -493,7 +520,7 @@ async function updateWeeklyCell(date, newStart, newEnd, pause, rowElement) {
 }
 
 // =====================================
-// VUE CALENDRIER
+// VUE CALENDRIER AVEC GESTION DES CONGÉS
 // =====================================
 async function loadCalendarView() {
   console.log('📅 Chargement vue calendrier...');
@@ -522,12 +549,20 @@ async function loadCalendarView() {
   try {
     const data = await TimeData.getRange(start, end);
     const datesMap = new Map();
+    const localData = TimeData.getAll();
     
     data.forEach(row => {
       const [date, debut, fin, pause, duration, note] = row;
+      const dayData = localData[date];
+      
       let status = 'absent';
-      if (debut && fin) status = 'complet';
-      else if (debut) status = 'partiel';
+      let type = 'normal';
+      
+      if (dayData) {
+        type = dayData.type || 'normal';
+        if (debut && fin) status = 'complet';
+        else if (debut) status = 'partiel';
+      }
       
       datesMap.set(date, { 
         debut, 
@@ -535,7 +570,8 @@ async function loadCalendarView() {
         status, 
         note, 
         pause: parseInt(pause) || 60,
-        duration
+        duration,
+        type: type
       });
     });
 
@@ -553,16 +589,29 @@ async function loadCalendarView() {
       const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
       const cell = document.createElement('div');
       const dayData = datesMap.get(dateStr);
+      const isWeekend = TimeData.isWeekend(dateStr);
 
       let bg = 'bg-gray-200';
       let textColor = 'text-gray-700';
+      let emoji = '';
       
-      if (dayData?.status === 'complet') {
+      // Couleurs selon le type et le statut
+      if (dayData?.type === 'holiday') {
+        bg = 'bg-blue-300';
+        textColor = 'text-blue-800';
+        emoji = '🏖️';
+      } else if (isWeekend) {
+        bg = 'bg-gray-300';
+        textColor = 'text-gray-600';
+        emoji = '🏠';
+      } else if (dayData?.status === 'complet') {
         bg = 'bg-green-300';
         textColor = 'text-green-800';
+        emoji = '✅';
       } else if (dayData?.status === 'partiel') {
         bg = 'bg-yellow-300';
         textColor = 'text-yellow-800';
+        emoji = '⏰';
       }
       
       if (dateStr === today) {
@@ -576,6 +625,15 @@ async function loadCalendarView() {
       dayNumber.className = 'font-semibold';
       cell.appendChild(dayNumber);
       
+      // Emoji pour indiquer le type
+      if (emoji) {
+        const emojiDiv = document.createElement('div');
+        emojiDiv.textContent = emoji;
+        emojiDiv.className = 'text-xs';
+        cell.appendChild(emojiDiv);
+      }
+      
+      // Durée si disponible
       if (dayData?.duration && dayData.duration !== '00h00') {
         const duration = document.createElement('div');
         duration.textContent = dayData.duration;
@@ -584,7 +642,7 @@ async function loadCalendarView() {
       }
       
       cell.onclick = () => {
-        openModal(dateStr, dayData?.debut, dayData?.fin, dayData?.status, dayData?.note || '', dayData?.pause || 60);
+        openModal(dateStr, dayData?.debut, dayData?.fin, dayData?.status, dayData?.note || '', dayData?.pause || 60, dayData?.type || 'normal');
       };
       
       grid.appendChild(cell);
@@ -624,9 +682,9 @@ function initCalendarNavigation() {
 }
 
 // =====================================
-// MODAL DE MODIFICATION
+// MODAL DE MODIFICATION AVEC GESTION DES CONGÉS
 // =====================================
-function openModal(date, start = '', end = '', status = '', note = '', pause = 60) {
+function openModal(date, start = '', end = '', status = '', note = '', pause = 60, type = 'normal') {
   const modal = document.getElementById('calendar-modal');
   const dateLabel = document.getElementById('modal-date-label');
   
@@ -649,6 +707,55 @@ function openModal(date, start = '', end = '', status = '', note = '', pause = 6
   if (pauseInput) pauseInput.value = pause;
   if (noteInput) noteInput.value = note || '';
   
+  // Ajouter le sélecteur de type si il n'existe pas
+  let typeSelect = document.getElementById('modal-type');
+  if (!typeSelect) {
+    const typeContainer = document.createElement('label');
+    typeContainer.className = 'block';
+    typeContainer.innerHTML = `
+      <span class="text-sm font-medium">Type de journée</span>
+      <select id="modal-type" class="w-full border rounded px-3 py-2">
+        <option value="normal">🏢 Travail normal</option>
+        <option value="holiday">🏖️ Congé (8h auto)</option>
+        <option value="sick">🤒 Arrêt maladie</option>
+        <option value="remote">🏠 Télétravail</option>
+      </select>
+    `;
+    
+    // Insérer avant les boutons
+    const buttonContainer = modal.querySelector('.mt-6');
+    buttonContainer.parentNode.insertBefore(typeContainer, buttonContainer);
+    typeSelect = document.getElementById('modal-type');
+  }
+  
+  if (typeSelect) {
+    typeSelect.value = type;
+    
+    // Gérer le changement de type
+    typeSelect.onchange = () => {
+      const selectedType = typeSelect.value;
+      
+      if (selectedType === 'holiday') {
+        // Congé : mettre automatiquement 8h (9h-17h avec 1h pause)
+        if (startInput) startInput.value = '09:00';
+        if (endInput) endInput.value = '17:00';
+        if (pauseInput) pauseInput.value = '60';
+        if (noteInput && !noteInput.value) noteInput.value = 'Congé';
+        showToast('8h de congé ajoutées automatiquement', 'success');
+      } else if (selectedType === 'sick') {
+        // Arrêt maladie : 8h aussi mais avec note différente
+        if (startInput) startInput.value = '09:00';
+        if (endInput) endInput.value = '17:00';
+        if (pauseInput) pauseInput.value = '60';
+        if (noteInput && !noteInput.value) noteInput.value = 'Arrêt maladie';
+        showToast('8h d\'arrêt maladie ajoutées', 'success');
+      } else if (selectedType === 'remote') {
+        // Télétravail : garder les heures normales
+        if (noteInput && !noteInput.value) noteInput.value = 'Télétravail';
+      }
+    };
+  }
+  
   modal.classList.remove('hidden');
 
   const saveBtn = document.getElementById('modal-save');
@@ -661,17 +768,25 @@ function openModal(date, start = '', end = '', status = '', note = '', pause = 6
       const newEnd = endInput ? endInput.value : '';
       const newPause = pauseInput ? parseInt(pauseInput.value) || 60 : 60;
       const newNote = noteInput ? noteInput.value : '';
+      const newType = typeSelect ? typeSelect.value : 'normal';
 
       const dayData = {
         date: date,
         start: newStart,
         end: newEnd,
         pause: newPause,
-        note: newNote
+        note: newNote,
+        type: newType
       };
 
       await TimeData.saveDay(date, dayData);
-      showToast('Pointage mis à jour', 'success');
+      
+      let message = 'Pointage mis à jour';
+      if (newType === 'holiday') message = '🏖️ Congé enregistré (8h)';
+      else if (newType === 'sick') message = '🤒 Arrêt maladie enregistré';
+      else if (newType === 'remote') message = '🏠 Télétravail enregistré';
+      
+      showToast(message, 'success');
       closeModal();
       loadCalendarView();
     };
@@ -695,11 +810,65 @@ function openModal(date, start = '', end = '', status = '', note = '', pause = 6
   }
 }
 
-function closeModal() {
-  const modal = document.getElementById('calendar-modal');
-  if (modal) {
-    modal.classList.add('hidden');
+// =====================================
+// GESTION DES CONGÉS AUTOMATIQUES
+// =====================================
+
+// Jours fériés français 2025 (vous pouvez personnaliser)
+const FRENCH_HOLIDAYS_2025 = [
+  '2025-01-01', // Nouvel An
+  '2025-04-21', // Lundi de Pâques
+  '2025-05-01', // Fête du Travail
+  '2025-05-08', // Victoire 1945
+  '2025-05-29', // Ascension
+  '2025-06-09', // Lundi de Pentecôte
+  '2025-07-14', // Fête Nationale
+  '2025-08-15', // Assomption
+  '2025-11-01', // Toussaint
+  '2025-11-11', // Armistice
+  '2025-12-25'  // Noël
+];
+
+// Fonction pour créer automatiquement les jours fériés
+function createPublicHolidays(year = 2025) {
+  const holidays = FRENCH_HOLIDAYS_2025.filter(date => date.startsWith(year.toString()));
+  let count = 0;
+  
+  holidays.forEach(async (date) => {
+    const existing = TimeData.getAll()[date];
+    if (!existing) {
+      await TimeData.createHolidayDay(date, 'Jour férié');
+      count++;
+    }
+  });
+  
+  if (count > 0) {
+    showToast(`${count} jours fériés ajoutés automatiquement`, 'success');
+  } else {
+    showToast('Jours fériés déjà présents', 'warning');
   }
+  
+  return count;
+}
+
+// Fonction pour créer une période de congés
+async function createHolidayPeriod(startDate, endDate, note = 'Congés') {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  let count = 0;
+  
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    
+    // Ignorer les weekends (optionnel)
+    if (!TimeData.isWeekend(dateStr)) {
+      await TimeData.createHolidayDay(dateStr, note);
+      count++;
+    }
+  }
+  
+  showToast(`${count} jours de congés créés`, 'success');
+  return count;
 }
 
 function initExportTab() {
