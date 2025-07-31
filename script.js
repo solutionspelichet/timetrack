@@ -352,12 +352,354 @@ function initTabs() {
         content.classList.remove('hidden');
       }
       
-      // Initialiser l'onglet export
+      // Charger le contenu selon l'onglet
       if (tabId === 'export') {
         initExportTab();
+      } else if (tabId === 'hebdo') {
+        loadWeeklyView();
+      } else if (tabId === 'calendrier') {
+        loadCalendarView();
       }
     });
   });
+}
+
+// =====================================
+// VUE HEBDOMADAIRE
+// =====================================
+async function loadWeeklyView() {
+  console.log('📅 Chargement vue hebdomadaire...');
+  
+  const today = new Date();
+  const startDate = new Date();
+  startDate.setDate(today.getDate() - 6);
+  const formattedStart = startDate.toISOString().split('T')[0];
+  const formattedEnd = today.toISOString().split('T')[0];
+
+  try {
+    const data = await TimeData.getRange(formattedStart, formattedEnd);
+    renderWeeklyTable(data);
+  } catch (error) {
+    console.error('Erreur chargement semaine:', error);
+    showToast('Erreur lors du chargement de la semaine', 'error');
+  }
+}
+
+function renderWeeklyTable(data) {
+  const tbody = document.getElementById('hebdo-body');
+  if (!tbody) return;
+  
+  tbody.innerHTML = '';
+  let totalMinutes = 0;
+
+  data.forEach(row => {
+    const [date, debut, fin, pause, durée, note] = row;
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50';
+
+    // Date avec nom du jour
+    const dayName = new Date(date).toLocaleDateString('fr-FR', { weekday: 'short' });
+    const formattedDate = new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    
+    const tdDate = document.createElement('td');
+    tdDate.innerHTML = `<div class="font-medium">${dayName}</div><div class="text-xs text-gray-500">${formattedDate}</div>`;
+    tdDate.className = 'p-2 border';
+    tr.appendChild(tdDate);
+
+    // Début
+    const tdStart = document.createElement('td');
+    const inputStart = document.createElement('input');
+    inputStart.type = 'time';
+    inputStart.value = debut || '';
+    inputStart.className = 'w-full border rounded px-2 py-1';
+    inputStart.onchange = () => updateWeeklyCell(date, inputStart.value, null, pause, tr);
+    tdStart.appendChild(inputStart);
+    tdStart.className = 'p-2 border';
+    tr.appendChild(tdStart);
+
+    // Fin
+    const tdEnd = document.createElement('td');
+    const inputEnd = document.createElement('input');
+    inputEnd.type = 'time';
+    inputEnd.value = fin || '';
+    inputEnd.className = 'w-full border rounded px-2 py-1';
+    inputEnd.onchange = () => updateWeeklyCell(date, null, inputEnd.value, pause, tr);
+    tdEnd.appendChild(inputEnd);
+    tdEnd.className = 'p-2 border';
+    tr.appendChild(tdEnd);
+
+    // Pause
+    const tdPause = document.createElement('td');
+    tdPause.textContent = pause || '60 min';
+    tdPause.className = 'p-2 border text-center';
+    tr.appendChild(tdPause);
+
+    // Durée
+    const tdDurée = document.createElement('td');
+    const durationMinutes = calculateDuration(debut, fin, parseInt(pause) || 60);
+    totalMinutes += durationMinutes > 0 ? durationMinutes : 0;
+    tdDurée.textContent = formatMinutes(durationMinutes);
+    tdDurée.className = 'p-2 border text-center font-mono';
+    tdDurée.dataset.durationCell = 'true';
+    tr.appendChild(tdDurée);
+
+    // Note
+    const tdNote = document.createElement('td');
+    tdNote.textContent = note || '';
+    tdNote.className = 'p-2 border text-xs';
+    tr.appendChild(tdNote);
+
+    tbody.appendChild(tr);
+  });
+
+  // Total
+  const totalRow = document.createElement('tr');
+  totalRow.className = 'bg-gray-100 font-bold';
+  totalRow.innerHTML = `
+    <td colspan="4" class="p-2 border text-right">Total semaine</td>
+    <td class="p-2 border text-center font-mono">${formatMinutes(totalMinutes)}</td>
+    <td class="p-2 border"></td>
+  `;
+  tbody.appendChild(totalRow);
+  
+  // Mettre à jour l'affichage du total
+  const weeklyTotal = document.getElementById('weekly-total');
+  if (weeklyTotal) {
+    weeklyTotal.textContent = formatMinutes(totalMinutes);
+  }
+}
+
+async function updateWeeklyCell(date, newStart, newEnd, pause, rowElement) {
+  const rowInputs = rowElement.querySelectorAll("input[type='time']");
+  const start = newStart || (rowInputs[0] ? rowInputs[0].value : '');
+  const end = newEnd || (rowInputs[1] ? rowInputs[1].value : '');
+  const pauseMinutes = parseInt((pause || '60').toString().replace(' min', ''));
+
+  const existingData = TimeData.getAll()[date] || {};
+  const dayData = {
+    ...existingData,
+    start,
+    end,
+    pause: pauseMinutes
+  };
+
+  await TimeData.saveDay(date, dayData);
+
+  const durationCell = rowElement.querySelector('[data-duration-cell]');
+  if (durationCell) {
+    const minutes = calculateDuration(start, end, pauseMinutes);
+    durationCell.textContent = formatMinutes(minutes);
+  }
+}
+
+// =====================================
+// VUE CALENDRIER
+// =====================================
+async function loadCalendarView() {
+  console.log('📅 Chargement vue calendrier...');
+  
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  
+  grid.innerHTML = '';
+
+  const year = calendarYear;
+  const month = calendarMonth;
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const totalDays = lastDay.getDate();
+  const startDayOfWeek = (firstDay.getDay() + 6) % 7; // Lundi = 0
+
+  const title = firstDay.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  const titleElement = document.getElementById('calendar-title');
+  if (titleElement) {
+    titleElement.textContent = title.charAt(0).toUpperCase() + title.slice(1);
+  }
+
+  const start = `${year}-${(month + 1).toString().padStart(2, '0')}-01`;
+  const end = `${year}-${(month + 1).toString().padStart(2, '0')}-${totalDays.toString().padStart(2, '0')}`;
+  
+  try {
+    const data = await TimeData.getRange(start, end);
+    const datesMap = new Map();
+    
+    data.forEach(row => {
+      const [date, debut, fin, pause, duration, note] = row;
+      let status = 'absent';
+      if (debut && fin) status = 'complet';
+      else if (debut) status = 'partiel';
+      
+      datesMap.set(date, { 
+        debut, 
+        fin, 
+        status, 
+        note, 
+        pause: parseInt(pause) || 60,
+        duration
+      });
+    });
+
+    // Cases vides pour aligner le premier jour
+    for (let i = 0; i < startDayOfWeek; i++) {
+      const empty = document.createElement('div');
+      empty.className = 'p-2';
+      grid.appendChild(empty);
+    }
+
+    // Jours du mois
+    const today = new Date().toISOString().split('T')[0];
+    
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      const dayData = datesMap.get(dateStr);
+
+      let bg = 'bg-gray-200';
+      let textColor = 'text-gray-700';
+      
+      if (dayData?.status === 'complet') {
+        bg = 'bg-green-300';
+        textColor = 'text-green-800';
+      } else if (dayData?.status === 'partiel') {
+        bg = 'bg-yellow-300';
+        textColor = 'text-yellow-800';
+      }
+      
+      if (dateStr === today) {
+        bg += ' ring-2 ring-blue-500';
+      }
+
+      cell.className = `${bg} ${textColor} p-2 rounded cursor-pointer hover:bg-opacity-70 transition-colors text-center relative`;
+      
+      const dayNumber = document.createElement('div');
+      dayNumber.textContent = d;
+      dayNumber.className = 'font-semibold';
+      cell.appendChild(dayNumber);
+      
+      if (dayData?.duration && dayData.duration !== '00h00') {
+        const duration = document.createElement('div');
+        duration.textContent = dayData.duration;
+        duration.className = 'text-xs mt-1';
+        cell.appendChild(duration);
+      }
+      
+      cell.onclick = () => {
+        openModal(dateStr, dayData?.debut, dayData?.fin, dayData?.status, dayData?.note || '', dayData?.pause || 60);
+      };
+      
+      grid.appendChild(cell);
+    }
+  } catch (error) {
+    console.error('Erreur chargement calendrier:', error);
+    showToast('Erreur lors du chargement du calendrier', 'error');
+  }
+}
+
+// Navigation calendrier
+function initCalendarNavigation() {
+  const prevBtn = document.getElementById('prev-month');
+  const nextBtn = document.getElementById('next-month');
+  
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      calendarMonth--;
+      if (calendarMonth < 0) {
+        calendarMonth = 11;
+        calendarYear--;
+      }
+      loadCalendarView();
+    };
+  }
+  
+  if (nextBtn) {
+    nextBtn.onclick = () => {
+      calendarMonth++;
+      if (calendarMonth > 11) {
+        calendarMonth = 0;
+        calendarYear++;
+      }
+      loadCalendarView();
+    };
+  }
+}
+
+// =====================================
+// MODAL DE MODIFICATION
+// =====================================
+function openModal(date, start = '', end = '', status = '', note = '', pause = 60) {
+  const modal = document.getElementById('calendar-modal');
+  const dateLabel = document.getElementById('modal-date-label');
+  
+  if (!modal || !dateLabel) return;
+  
+  dateLabel.textContent = new Date(date).toLocaleDateString('fr-FR', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  
+  const startInput = document.getElementById('modal-start');
+  const endInput = document.getElementById('modal-end');
+  const pauseInput = document.getElementById('modal-pause');
+  const noteInput = document.getElementById('modal-note');
+  
+  if (startInput) startInput.value = start || '';
+  if (endInput) endInput.value = end || '';
+  if (pauseInput) pauseInput.value = pause;
+  if (noteInput) noteInput.value = note || '';
+  
+  modal.classList.remove('hidden');
+
+  const saveBtn = document.getElementById('modal-save');
+  const deleteBtn = document.getElementById('modal-delete');
+  const cancelBtn = document.getElementById('modal-cancel');
+  
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const newStart = startInput ? startInput.value : '';
+      const newEnd = endInput ? endInput.value : '';
+      const newPause = pauseInput ? parseInt(pauseInput.value) || 60 : 60;
+      const newNote = noteInput ? noteInput.value : '';
+
+      const dayData = {
+        date: date,
+        start: newStart,
+        end: newEnd,
+        pause: newPause,
+        note: newNote
+      };
+
+      await TimeData.saveDay(date, dayData);
+      showToast('Pointage mis à jour', 'success');
+      closeModal();
+      loadCalendarView();
+    };
+  }
+
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (confirm('Supprimer ce pointage ?')) {
+        const allData = TimeData.getAll();
+        delete allData[date];
+        Storage.set('timetrack_data', allData);
+        showToast('Pointage supprimé', 'success');
+        closeModal();
+        loadCalendarView();
+      }
+    };
+  }
+
+  if (cancelBtn) {
+    cancelBtn.onclick = closeModal;
+  }
+}
+
+function closeModal() {
+  const modal = document.getElementById('calendar-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
 }
 
 function initExportTab() {
@@ -407,7 +749,7 @@ function initPointage() {
       if (endInput) {
         endInput.value = time;
       }
-      showToast('Heure de fin prête !');
+      showToast('Heure de fin prête !', 'success');
     };
   }
   
@@ -435,6 +777,12 @@ function initPointage() {
       await TimeData.saveDay(date, data);
       
       if (noteInput) noteInput.value = '';
+      
+      // Recharger la vue hebdomadaire si elle est active
+      const hebdoTab = document.querySelector('[data-tab="hebdo"]');
+      if (hebdoTab && hebdoTab.classList.contains('bg-blue-200')) {
+        loadWeeklyView();
+      }
     };
   }
 }
@@ -446,6 +794,7 @@ function initExports() {
   const csvBtn = document.getElementById('export-csv');
   const excelBtn = document.getElementById('export-excel');
   const jsonBtn = document.getElementById('export-json');
+  const monthBtn = document.getElementById('export-month');
   const clearBtn = document.getElementById('clear-data');
   
   if (csvBtn) {
@@ -508,11 +857,33 @@ function initExports() {
     };
   }
   
+  if (monthBtn) {
+    monthBtn.onclick = async () => {
+      const year = calendarYear;
+      const month = calendarMonth + 1;
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+      
+      try {
+        const data = await TimeData.getRange(startDate, endDate);
+        const monthName = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+        await exportToExcel(data, `timetrack_${monthName.replace(' ', '_')}.xlsx`);
+        showToast(`Export Excel ${monthName} terminé`, 'success');
+      } catch (error) {
+        console.error('Erreur export mensuel:', error);
+        showToast('Erreur export du mois', 'error');
+      }
+    };
+  }
+  
   if (clearBtn) {
     clearBtn.onclick = () => {
       if (confirm('Effacer toutes les données ?')) {
         TimeData.clear();
         showToast('Données effacées', 'success');
+        loadWeeklyView();
+        loadCalendarView();
       }
     };
   }
@@ -538,6 +909,10 @@ async function initApp() {
     initTabs();
     initPointage();
     initExports();
+    initCalendarNavigation();
+    
+    // Charger la vue par défaut (hebdomadaire)
+    await loadWeeklyView();
     
     console.log('✅ TimeTrack initialisé');
     showToast('Application prête !', 'success');
@@ -560,7 +935,9 @@ window.TimeTrackDebug = {
     await exportToExcel(testData, 'test.xlsx');
   },
   showData: () => console.log(TimeData.getAll()),
-  clearData: () => TimeData.clear()
+  clearData: () => TimeData.clear(),
+  loadWeek: () => loadWeeklyView(),
+  loadCalendar: () => loadCalendarView()
 };
 
 // =====================================
