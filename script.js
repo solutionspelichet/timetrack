@@ -1,6 +1,5 @@
 // =====================================
-// TimeTrack PWA HYBRIDE - VERSION FINALE SANS ERREURS
-// Compatible avec timetrack-api.onrender.com + Export + Calendrier
+// TimeTrack PWA - Version avec Export Excel corrigé
 // =====================================
 
 const CONFIG = {
@@ -15,7 +14,7 @@ let calendarYear = new Date().getFullYear();
 let syncTimer = null;
 
 // =====================================
-// STOCKAGE HYBRIDE
+// STOCKAGE HYBRIDE (inchangé)
 // =====================================
 
 const HybridStorage = {
@@ -77,18 +76,16 @@ const HybridStorage = {
 };
 
 // =====================================
-// GESTION DES DONNÉES AVEC MIGRATION
+// GESTION DES DONNÉES (version courte)
 // =====================================
 
 const TimeData = {
-  
-  // 🔄 MIGRATION INITIALE : Récupérer toutes les données historiques
   async performInitialSync() {
     const hasLocalData = Object.keys(this.getLocalData()).length > 0;
     const syncStatus = HybridStorage.local.get('sync_status');
     
     if (!hasLocalData || !syncStatus?.initialSyncDone) {
-      showLoadingMessage('🔄 Récupération de vos données historiques depuis Google Sheets...');
+      showLoadingMessage('🔄 Récupération de vos données historiques...');
       
       try {
         const endDate = new Date();
@@ -97,8 +94,6 @@ const TimeData = {
         
         const formattedStart = startDate.toISOString().split('T')[0];
         const formattedEnd = endDate.toISOString().split('T')[0];
-        
-        console.log(`📥 Récupération historique: ${formattedStart} à ${formattedEnd}`);
         
         const historicalData = await HybridStorage.cloud.get(`/range?start=${formattedStart}&end=${formattedEnd}`);
         
@@ -133,22 +128,19 @@ const TimeData = {
         hideLoadingMessage();
         
         if (importedCount > 0) {
-          Toast.success(`✅ ${importedCount} entrées historiques récupérées depuis Google Sheets`);
+          Toast.success(`✅ ${importedCount} entrées historiques récupérées`);
         } else {
           Toast.success('✅ Synchronisation initiale terminée');
         }
         
-        console.log(`✅ Migration terminée: ${importedCount} entrées importées`);
-        
       } catch (error) {
         hideLoadingMessage();
         console.error('❌ Erreur migration initiale:', error);
-        Toast.error('Impossible de récupérer les données. Mode hors ligne activé.');
+        Toast.error('Mode hors ligne activé');
         CONFIG.OFFLINE_MODE = true;
       }
     } else {
       CONFIG.INITIAL_SYNC_DONE = true;
-      console.log('✅ Données locales existantes trouvées');
     }
   },
 
@@ -181,8 +173,7 @@ const TimeData = {
         Toast.success('💾 Sauvegardé localement et sur Google Sheets');
         
       } catch (error) {
-        Toast.success('💾 Sauvegardé localement (synchronisation en attente)');
-        this.scheduleSync();
+        Toast.success('💾 Sauvegardé localement (sync en attente)');
       }
     } else {
       Toast.success('💾 Sauvegardé localement (mode hors ligne)');
@@ -197,49 +188,7 @@ const TimeData = {
     }
     
     const localData = this.getLocalData();
-    const result = this.formatRangeData(localData, startDate, endDate);
-    
-    if (!CONFIG.OFFLINE_MODE) {
-      this.refreshFromCloud(startDate, endDate).catch(console.error);
-    }
-    
-    return result;
-  },
-
-  async refreshFromCloud(startDate, endDate) {
-    try {
-      const cloudData = await HybridStorage.cloud.get(`/range?start=${startDate}&end=${endDate}`);
-      const localData = this.getLocalData();
-      let updatedCount = 0;
-      
-      cloudData.forEach(row => {
-        const [date, start, end, pause, duration, note] = row;
-        const localEntry = localData[date];
-        
-        if (!localEntry || (!localEntry.needsSync && localEntry.source !== 'user')) {
-          if (start || end || note) {
-            localData[date] = {
-              start: start || '',
-              end: end || '',
-              pause: parseInt(pause) || 60,
-              note: note || '',
-              needsSync: false,
-              lastModified: Date.now(),
-              source: 'cloud'
-            };
-            updatedCount++;
-          }
-        }
-      });
-      
-      if (updatedCount > 0) {
-        HybridStorage.local.set('timetrack_data', localData);
-        console.log(`🔄 ${updatedCount} entrées mises à jour depuis le cloud`);
-      }
-      
-    } catch (error) {
-      console.error('Erreur rafraîchissement:', error);
-    }
+    return this.formatRangeData(localData, startDate, endDate);
   },
 
   getLocalData() {
@@ -273,74 +222,6 @@ const TimeData = {
     return result;
   },
 
-  async syncPendingData() {
-    const localData = this.getLocalData();
-    const pendingData = Object.entries(localData).filter(([date, data]) => data.needsSync);
-    
-    if (pendingData.length === 0) return;
-
-    let syncedCount = 0;
-    
-    for (const [date, data] of pendingData) {
-      try {
-        await HybridStorage.cloud.post('/update', {
-          date,
-          start: data.start,
-          end: data.end,
-          pause: data.pause,
-          note: data.note
-        });
-        
-        localData[date].needsSync = false;
-        syncedCount++;
-      } catch (error) {
-        console.error(`Erreur sync ${date}:`, error);
-        break;
-      }
-    }
-    
-    if (syncedCount > 0) {
-      HybridStorage.local.set('timetrack_data', localData);
-      Toast.success(`🔄 ${syncedCount} modification(s) synchronisée(s) avec Google Sheets`);
-    }
-  },
-
-  scheduleSync() {
-    if (syncTimer) clearTimeout(syncTimer);
-    
-    syncTimer = setTimeout(async () => {
-      if (!CONFIG.OFFLINE_MODE) {
-        await this.syncPendingData();
-      }
-      this.scheduleSync();
-    }, CONFIG.SYNC_INTERVAL);
-  },
-
-  deleteDay(date) {
-    const localData = this.getLocalData();
-    delete localData[date];
-    HybridStorage.local.set('timetrack_data', localData);
-    return true;
-  },
-
-  clear() {
-    HybridStorage.local.set('timetrack_data', {});
-    HybridStorage.local.set('sync_status', { initialSyncDone: false });
-    return true;
-  },
-
-  getSyncStats() {
-    const localData = this.getLocalData();
-    const syncStatus = HybridStorage.local.get('sync_status');
-    
-    return {
-      totalEntries: Object.keys(localData).length,
-      pendingSync: Object.values(localData).filter(d => d.needsSync).length,
-      lastSync: syncStatus?.lastSync,
-      initialSyncDone: syncStatus?.initialSyncDone || false
-    };
-  },
-
   calculateDuration(start, end, pause = 60) {
     if (!start || !end) return 0;
     const [sh, sm] = start.split(":").map(Number);
@@ -354,6 +235,12 @@ const TimeData = {
     const h = Math.floor(minutes / 60);
     const m = minutes % 60;
     return `${h.toString().padStart(2, '0')}h${m.toString().padStart(2, '0')}`;
+  },
+
+  clear() {
+    HybridStorage.local.set('timetrack_data', {});
+    HybridStorage.local.set('sync_status', { initialSyncDone: false });
+    return true;
   }
 };
 
@@ -436,24 +323,404 @@ function hideLoadingMessage() {
 }
 
 // =====================================
-// GESTION DU POINTAGE
+// EXPORT EXCEL CORRIGÉ
 // =====================================
+
+async function generateExcel(data, filename) {
+  console.log('🚀 [EXCEL] Début génération:', filename);
+  console.log('📊 [EXCEL] Données à traiter:', data.length, 'lignes');
+  
+  try {
+    // Charger SheetJS si pas encore chargé
+    if (!window.XLSX) {
+      console.log('📦 [EXCEL] Chargement de SheetJS...');
+      Toast.show('Chargement de la bibliothèque Excel...', 'warning');
+      await loadSheetJS();
+      console.log('✅ [EXCEL] SheetJS chargé avec succès');
+    } else {
+      console.log('✅ [EXCEL] SheetJS déjà disponible');
+    }
+
+    // Préparer les données
+    const headers = ['Date', 'Jour', 'Début', 'Fin', 'Pause (min)', 'Durée', 'Note'];
+    const excelData = [];
+    excelData.push(headers);
+    
+    let totalMinutes = 0;
+    let daysWorked = 0;
+    
+    data.forEach(row => {
+      const [date, debut, fin, pause, durée, note] = row;
+      
+      const dayName = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long' });
+      const pauseMinutes = parseInt(pause) || 60;
+      const duration = TimeData.calculateDuration(debut, fin, pauseMinutes);
+      
+      if (duration > 0) {
+        totalMinutes += duration;
+        daysWorked++;
+      }
+      
+      excelData.push([
+        date,
+        dayName.charAt(0).toUpperCase() + dayName.slice(1),
+        debut || '',
+        fin || '',
+        pauseMinutes,
+        durée,
+        note || ''
+      ]);
+    });
+
+    // Statistiques
+    excelData.push(['', '', '', '', '', '', '']);
+    excelData.push(['STATISTIQUES', '', '', '', '', '', '']);
+    excelData.push(['Total heures travaillées', '', '', '', '', TimeData.formatMinutes(totalMinutes), '']);
+    excelData.push(['Nombre de jours travaillés', '', '', '', '', daysWorked, '']);
+    if (daysWorked > 0) {
+      excelData.push(['Moyenne par jour', '', '', '', '', TimeData.formatMinutes(Math.round(totalMinutes / daysWorked)), '']);
+    }
+
+    console.log('📈 [EXCEL] Statistiques - Total:', TimeData.formatMinutes(totalMinutes), 'Jours:', daysWorked);
+
+    // Créer le fichier Excel
+    const wb = window.XLSX.utils.book_new();
+    const ws = window.XLSX.utils.aoa_to_sheet(excelData);
+
+    // Largeurs de colonnes
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, 
+      { wch: 12 }, { wch: 10 }, { wch: 20 }
+    ];
+
+    window.XLSX.utils.book_append_sheet(wb, ws, 'TimeTrack');
+
+    console.log('💾 [EXCEL] Génération du fichier binaire...');
+
+    // Générer et télécharger
+    const wbout = window.XLSX.write(wb, { 
+      bookType: 'xlsx', 
+      type: 'array'
+    });
+    
+    const blob = new Blob([wbout], { 
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+    });
+    
+    console.log('📥 [EXCEL] Téléchargement...', blob.size, 'bytes');
+    
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    console.log('✅ [EXCEL] Export terminé avec succès');
+
+  } catch (error) {
+    console.error('❌ [EXCEL] Erreur:', error);
+    
+    // Fallback vers HTML Excel
+    console.log('🔄 [EXCEL] Tentative fallback HTML...');
+    try {
+      generateExcelHTML(data, filename);
+      Toast.warning('Export Excel HTML généré (ouvrir avec Excel)');
+    } catch (fallbackError) {
+      console.error('❌ [EXCEL] Fallback échoué:', fallbackError);
+      throw new Error('Impossible d\'exporter en Excel');
+    }
+  }
+}
+
+async function loadSheetJS() {
+  return new Promise((resolve, reject) => {
+    if (window.XLSX) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.crossOrigin = 'anonymous';
+    
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout chargement SheetJS'));
+    }, 15000);
+    
+    script.onload = () => {
+      clearTimeout(timeout);
+      if (window.XLSX) {
+        resolve();
+      } else {
+        reject(new Error('SheetJS non disponible après chargement'));
+      }
+    };
+    
+    script.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error('Erreur chargement SheetJS'));
+    };
+    
+    document.head.appendChild(script);
+  });
+}
+
+function generateExcelHTML(data, filename) {
+  console.log('🔄 [EXCEL-HTML] Génération format HTML pour Excel');
+  
+  let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+  <head><meta charset="utf-8"><meta name="ProgId" content="Excel.Sheet"></head>
+  <body><table border="1">
+  <tr style="background-color: #2563eb; color: white; font-weight: bold;">
+    <th>Date</th><th>Jour</th><th>Début</th><th>Fin</th><th>Pause</th><th>Durée</th><th>Note</th>
+  </tr>`;
+  
+  let totalMinutes = 0;
+  let daysWorked = 0;
+  
+  data.forEach(row => {
+    const [date, debut, fin, pause, durée, note] = row;
+    const dayName = new Date(date).toLocaleDateString('fr-FR', { weekday: 'long' });
+    const duration = TimeData.calculateDuration(debut, fin, parseInt(pause) || 60);
+    
+    if (duration > 0) {
+      totalMinutes += duration;
+      daysWorked++;
+    }
+    
+    html += `<tr>
+      <td>${date}</td>
+      <td>${dayName}</td>
+      <td>${debut}</td>
+      <td>${fin}</td>
+      <td>${parseInt(pause) || 60}</td>
+      <td>${durée}</td>
+      <td>${note}</td>
+    </tr>`;
+  });
+  
+  html += `
+  <tr><td colspan="7"></td></tr>
+  <tr style="font-weight: bold;"><td>STATISTIQUES</td><td colspan="6"></td></tr>
+  <tr><td>Total</td><td colspan="4"></td><td>${TimeData.formatMinutes(totalMinutes)}</td><td></td></tr>
+  <tr><td>Jours</td><td colspan="4"></td><td>${daysWorked}</td><td></td></tr>
+  </table></body></html>`;
+  
+  const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename.replace('.xlsx', '.xls');
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// =====================================
+// EXPORTS STANDARDS
+// =====================================
+
+function generateCSV(data) {
+  const headers = ['Date', 'Début', 'Fin', 'Pause', 'Durée', 'Note'];
+  const csvRows = [headers.join(',')];
+  
+  data.forEach(row => {
+    const csvRow = row.map(cell => {
+      const cellStr = String(cell || '');
+      if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+        return `"${cellStr.replace(/"/g, '""')}"`;
+      }
+      return cellStr;
+    });
+    csvRows.push(csvRow.join(','));
+  });
+  
+  return csvRows.join('\n');
+}
+
+function downloadFile(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// =====================================
+// GESTION DES EXPORTS
+// =====================================
+
+function initializeExportButtons() {
+  const csvBtn = document.getElementById("export-csv");
+  const jsonBtn = document.getElementById("export-json");
+  const excelBtn = document.getElementById("export-excel");
+  const monthBtn = document.getElementById("export-month");
+  const clearBtn = document.getElementById("clear-data");
+  
+  if (csvBtn) {
+    csvBtn.onclick = async () => {
+      const startDate = document.getElementById("export-start")?.value;
+      const endDate = document.getElementById("export-end")?.value;
+      
+      if (!startDate || !endDate) {
+        Toast.error('Veuillez sélectionner les dates');
+        return;
+      }
+      
+      try {
+        const data = await TimeData.getRange(startDate, endDate);
+        const csvContent = generateCSV(data);
+        downloadFile(csvContent, `timetrack_${startDate}_${endDate}.csv`, 'text/csv');
+        Toast.success('📊 Export CSV téléchargé');
+      } catch (error) {
+        console.error('Erreur CSV:', error);
+        Toast.error('Erreur lors de l\'export CSV');
+      }
+    };
+  }
+  
+  if (jsonBtn) {
+    jsonBtn.onclick = async () => {
+      const startDate = document.getElementById("export-start")?.value;
+      const endDate = document.getElementById("export-end")?.value;
+      
+      if (!startDate || !endDate) {
+        Toast.error('Veuillez sélectionner les dates');
+        return;
+      }
+      
+      try {
+        const data = await TimeData.getRange(startDate, endDate);
+        const jsonContent = JSON.stringify(data, null, 2);
+        downloadFile(jsonContent, `timetrack_${startDate}_${endDate}.json`, 'application/json');
+        Toast.success('📄 Export JSON téléchargé');
+      } catch (error) {
+        console.error('Erreur JSON:', error);
+        Toast.error('Erreur lors de l\'export JSON');
+      }
+    };
+  }
+
+  if (excelBtn) {
+    excelBtn.onclick = async () => {
+      const startDate = document.getElementById("export-start")?.value;
+      const endDate = document.getElementById("export-end")?.value;
+      
+      if (!startDate || !endDate) {
+        Toast.error('Veuillez sélectionner les dates');
+        return;
+      }
+      
+      console.log('🚀 [BOUTON] Clic export Excel - Période:', startDate, 'à', endDate);
+      
+      try {
+        const data = await TimeData.getRange(startDate, endDate);
+        console.log('📊 [BOUTON] Données récupérées:', data.length, 'lignes');
+        
+        await generateExcel(data, `timetrack_${startDate}_${endDate}.xlsx`);
+        Toast.success('📗 Export Excel téléchargé');
+        
+      } catch (error) {
+        console.error('❌ [BOUTON] Erreur export Excel:', error);
+        Toast.error('Erreur lors de l\'export Excel: ' + error.message);
+      }
+    };
+  }
+  
+  if (monthBtn) {
+    monthBtn.onclick = async () => {
+      const year = calendarYear;
+      const month = calendarMonth + 1;
+      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
+      
+      try {
+        const data = await TimeData.getRange(startDate, endDate);
+        const monthName = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+        await generateExcel(data, `timetrack_${monthName.replace(' ', '_')}.xlsx`);
+        Toast.success(`📗 Export Excel ${monthName} téléchargé`);
+      } catch (error) {
+        console.error('Erreur Excel mensuel:', error);
+        Toast.error('Erreur lors de l\'export du mois');
+      }
+    };
+  }
+  
+  if (clearBtn) {
+    clearBtn.onclick = () => {
+      if (confirm('Êtes-vous sûr de vouloir effacer toutes les données ?')) {
+        if (confirm('Dernière confirmation : toutes vos données seront perdues !')) {
+          TimeData.clear();
+          Toast.success('Toutes les données ont été effacées');
+        }
+      }
+    };
+  }
+}
+
+// =====================================
+// FONCTIONS SIMPLIFIÉES POUR INIT
+// =====================================
+
+function initializeTabs() {
+  document.querySelectorAll(".tab-button").forEach(button => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".tab-button").forEach(b => {
+        b.classList.remove("bg-blue-200");
+        b.classList.add("bg-gray-200");
+      });
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.add("hidden"));
+
+      button.classList.remove("bg-gray-200");
+      button.classList.add("bg-blue-200");
+      const tabId = button.getAttribute("data-tab");
+      const tabContent = document.getElementById(tabId);
+      if (tabContent) {
+        tabContent.classList.remove("hidden");
+      }
+
+      if (tabId === "export") {
+        initExportTab();
+      }
+    });
+  });
+}
+
+function initExportTab() {
+  const today = new Date();
+  const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const lastDayMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  
+  const startInput = document.getElementById("export-start");
+  const endInput = document.getElementById("export-end");
+  
+  if (startInput) startInput.value = firstDayMonth.toISOString().split('T')[0];
+  if (endInput) endInput.value = lastDayMonth.toISOString().split('T')[0];
+}
 
 function initializeTimeTracking() {
   const startBtn = document.getElementById("start");
-  const stopBtn = document.getElementById("stop");
   const submitBtn = document.getElementById("submit");
 
   if (startBtn) {
     startBtn.onclick = async () => {
       const now = new Date();
       const isoDate = now.toISOString().split('T')[0];
-      const manualStart = document.getElementById("manualStart").value;
-      const startTime = manualStart || now.toTimeString().substring(0, 5);
+      const manualStart = document.getElementById("manualStart");
+      const startTime = manualStart ? (manualStart.value || now.toTimeString().substring(0, 5)) : now.toTimeString().substring(0, 5);
       
-      if (!manualStart) {
-        const startInput = document.getElementById("manualStart");
-        if (startInput) startInput.value = startTime;
+      if (manualStart && !manualStart.value) {
+        manualStart.value = startTime;
       }
 
       const existingData = TimeData.getLocalData()[isoDate] || {};
@@ -461,17 +728,6 @@ function initializeTimeTracking() {
       existingData.date = isoDate;
       
       await TimeData.saveDay(isoDate, existingData);
-      localStorage.setItem("row", isoDate);
-    };
-  }
-
-  if (stopBtn) {
-    stopBtn.onclick = () => {
-      const now = new Date();
-      const time = now.toTimeString().substring(0, 5);
-      const endInput = document.getElementById("manualEnd");
-      if (endInput) endInput.value = time;
-      Toast.success("Heure de fin prête à enregistrer !");
     };
   }
 
@@ -498,582 +754,62 @@ function initializeTimeTracking() {
       await TimeData.saveDay(isoDate, dayData);
       
       if (noteInput) noteInput.value = "";
-      localStorage.removeItem("row");
     };
   }
 }
 
 // =====================================
-// VUE HEBDOMADAIRE
+// INITIALISATION SIMPLIFIÉE
 // =====================================
 
-async function loadWeeklyView() {
-  const today = new Date();
-  const startDate = new Date();
-  startDate.setDate(today.getDate() - 6);
-  const formattedStart = startDate.toISOString().split("T")[0];
-  const formattedEnd = today.toISOString().split("T")[0];
-
-  try {
-    const data = await TimeData.getRange(formattedStart, formattedEnd);
-    renderWeeklyTable(data);
-  } catch (error) {
-    console.error('Erreur chargement semaine:', error);
-    Toast.error('Erreur lors du chargement de la semaine');
-  }
-}
-
-function renderWeeklyTable(data) {
-  const tbody = document.getElementById("hebdo-body");
-  if (!tbody) return;
-  
-  tbody.innerHTML = "";
-  let totalMinutes = 0;
-
-  data.forEach(row => {
-    const [date, debut, fin, pause, durée, note] = row;
-    const tr = document.createElement("tr");
-    tr.className = "hover:bg-gray-50";
-
-    const dayName = new Date(date).toLocaleDateString('fr-FR', { weekday: 'short' });
-    const formattedDate = new Date(date).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    
-    const tdDate = document.createElement("td");
-    tdDate.innerHTML = `<div class="font-medium">${dayName}</div><div class="text-xs text-gray-500">${formattedDate}</div>`;
-    tdDate.className = "p-2 border";
-    tr.appendChild(tdDate);
-
-    const tdStart = document.createElement("td");
-    const inputStart = document.createElement("input");
-    inputStart.type = "time";
-    inputStart.value = debut || "";
-    inputStart.className = "w-full border rounded px-2 py-1";
-    inputStart.onchange = () => updateCellHybrid(date, inputStart.value, null, pause, tr);
-    tdStart.appendChild(inputStart);
-    tdStart.className = "p-2 border";
-    tr.appendChild(tdStart);
-
-    const tdEnd = document.createElement("td");
-    const inputEnd = document.createElement("input");
-    inputEnd.type = "time";
-    inputEnd.value = fin || "";
-    inputEnd.className = "w-full border rounded px-2 py-1";
-    inputEnd.onchange = () => updateCellHybrid(date, null, inputEnd.value, pause, tr);
-    tdEnd.appendChild(inputEnd);
-    tdEnd.className = "p-2 border";
-    tr.appendChild(tdEnd);
-
-    const tdPause = document.createElement("td");
-    tdPause.textContent = pause || "60 min";
-    tdPause.className = "p-2 border text-center";
-    tr.appendChild(tdPause);
-
-    const tdDurée = document.createElement("td");
-    const durationMinutes = TimeData.calculateDuration(debut, fin, parseInt(pause) || 60);
-    totalMinutes += durationMinutes > 0 ? durationMinutes : 0;
-    tdDurée.textContent = TimeData.formatMinutes(durationMinutes);
-    tdDurée.className = "p-2 border text-center font-mono";
-    tdDurée.dataset.durationCell = "true";
-    tr.appendChild(tdDurée);
-
-    const tdNote = document.createElement("td");
-    tdNote.textContent = note || "";
-    tdNote.className = "p-2 border text-xs";
-    tr.appendChild(tdNote);
-
-    tbody.appendChild(tr);
-  });
-
-  const totalRow = document.createElement("tr");
-  totalRow.className = "bg-gray-100 font-bold";
-  totalRow.innerHTML = `
-    <td colspan="4" class="p-2 border text-right">Total semaine</td>
-    <td class="p-2 border text-center font-mono">${TimeData.formatMinutes(totalMinutes)}</td>
-    <td class="p-2 border"></td>
-  `;
-  tbody.appendChild(totalRow);
-}
-
-async function updateCellHybrid(date, newStart, newEnd, pause, rowElement) {
-  const rowInputs = rowElement.querySelectorAll("input[type='time']");
-  const start = newStart || (rowInputs[0] ? rowInputs[0].value : '');
-  const end = newEnd || (rowInputs[1] ? rowInputs[1].value : '');
-  const pauseMinutes = parseInt((pause || "60").toString().replace(" min", ""));
-
-  const localData = TimeData.getLocalData();
-  const existingData = localData[date] || {};
-  
-  const dayData = {
-    ...existingData,
-    start,
-    end,
-    pause: pauseMinutes
-  };
-
-  await TimeData.saveDay(date, dayData);
-
-  const durationCell = rowElement.querySelector("[data-duration-cell]");
-  if (durationCell) {
-    const minutes = TimeData.calculateDuration(start, end, pauseMinutes);
-    durationCell.textContent = TimeData.formatMinutes(minutes);
-  }
-}
-
-// =====================================
-// VUE CALENDRIER
-// =====================================
-
-async function loadCalendarView() {
-  const grid = document.getElementById("calendar-grid");
-  if (!grid) return;
-  
-  grid.innerHTML = "";
-
-  const year = calendarYear;
-  const month = calendarMonth;
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const totalDays = lastDay.getDate();
-  const startDayOfWeek = (firstDay.getDay() + 6) % 7;
-
-  const title = firstDay.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
-  const titleElement = document.getElementById("calendar-title");
-  if (titleElement) {
-    titleElement.textContent = title.charAt(0).toUpperCase() + title.slice(1);
-  }
-
-  const start = `${year}-${(month + 1).toString().padStart(2, '0')}-01`;
-  const end = `${year}-${(month + 1).toString().padStart(2, '0')}-${totalDays.toString().padStart(2, '0')}`;
+async function initializeApp() {
+  console.log('🚀 Initialisation TimeTrack...');
   
   try {
-    const data = await TimeData.getRange(start, end);
-    const datesMap = new Map();
+    await TimeData.performInitialSync();
+    initializeTabs();
+    initializeTimeTracking();
+    initializeExportButtons();
     
-    data.forEach(row => {
-      const [date, debut, fin, pause, duration, note] = row;
-      let status = "absent";
-      if (debut && fin) status = "complet";
-      else if (debut) status = "partiel";
-      
-      datesMap.set(date, { 
-        debut, 
-        fin, 
-        status, 
-        note, 
-        pause: parseInt(pause) || 60,
-        duration
-      });
-    });
-
-    // Cases vides pour aligner le premier jour
-    for (let i = 0; i < startDayOfWeek; i++) {
-      const empty = document.createElement("div");
-      empty.className = "p-2";
-      grid.appendChild(empty);
-    }
-
-    // Jours du mois
-    const today = new Date().toISOString().split('T')[0];
+    console.log('✅ TimeTrack initialisé avec succès');
     
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-      const cell = document.createElement("div");
-      const dayData = datesMap.get(dateStr);
-
-      let bg = "bg-gray-200";
-      let textColor = "text-gray-700";
-      
-      if (dayData?.status === "complet") {
-        bg = "bg-green-300";
-        textColor = "text-green-800";
-      } else if (dayData?.status === "partiel") {
-        bg = "bg-yellow-300";
-        textColor = "text-yellow-800";
-      }
-      
-      if (dateStr === today) {
-        bg += " ring-2 ring-blue-500";
-      }
-
-      cell.className = `${bg} ${textColor} p-2 rounded cursor-pointer hover:bg-opacity-70 transition-colors text-center relative`;
-      
-      const dayNumber = document.createElement("div");
-      dayNumber.textContent = d;
-      dayNumber.className = "font-semibold";
-      cell.appendChild(dayNumber);
-      
-      if (dayData?.duration && dayData.duration !== "00h00") {
-        const duration = document.createElement("div");
-        duration.textContent = dayData.duration;
-        duration.className = "text-xs mt-1";
-        cell.appendChild(duration);
-      }
-      
-      cell.onclick = () => {
-        openModal(dateStr, dayData?.debut, dayData?.fin, dayData?.status, dayData?.note || "", dayData?.pause || 60);
-      };
-      
-      grid.appendChild(cell);
-    }
   } catch (error) {
-    console.error('Erreur chargement calendrier:', error);
-    Toast.error('Erreur lors du chargement du calendrier');
+    console.error('❌ Erreur initialisation:', error);
+    Toast.error('Erreur lors de l\'initialisation');
   }
-}
-
-function initializeCalendarNavigation() {
-  const prevBtn = document.getElementById("prev-month");
-  const nextBtn = document.getElementById("next-month");
-  
-  if (prevBtn) {
-    prevBtn.onclick = () => {
-      calendarMonth--;
-      if (calendarMonth < 0) {
-        calendarMonth = 11;
-        calendarYear--;
-      }
-      loadCalendarView();
-    };
-  }
-  
-  if (nextBtn) {
-    nextBtn.onclick = () => {
-      calendarMonth++;
-      if (calendarMonth > 11) {
-        calendarMonth = 0;
-        calendarYear++;
-      }
-      loadCalendarView();
-    };
-  }
-}
-
-// =====================================
-// MODAL DE MODIFICATION
-// =====================================
-
-function openModal(date, start = "", end = "", status = "", note = "", pause = 60) {
-  const modal = document.getElementById("calendar-modal");
-  const dateLabel = document.getElementById("modal-date-label");
-  
-  if (!modal || !dateLabel) return;
-  
-  dateLabel.textContent = new Date(date).toLocaleDateString('fr-FR', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-  
-  const startInput = document.getElementById("modal-start");
-  const endInput = document.getElementById("modal-end");
-  const pauseInput = document.getElementById("modal-pause");
-  const noteInput = document.getElementById("modal-note");
-  
-  if (startInput) startInput.value = start || "";
-  if (endInput) endInput.value = end || "";
-  if (pauseInput) pauseInput.value = pause;
-  if (noteInput) noteInput.value = note || "";
-  
-  modal.classList.remove("hidden");
-
-  const saveBtn = document.getElementById("modal-save");
-  const deleteBtn = document.getElementById("modal-delete");
-  const cancelBtn = document.getElementById("modal-cancel");
-  
-  if (saveBtn) {
-    saveBtn.onclick = async () => {
-      const newStart = startInput ? startInput.value : '';
-      const newEnd = endInput ? endInput.value : '';
-      const newPause = pauseInput ? parseInt(pauseInput.value) || 60 : 60;
-      const newNote = noteInput ? noteInput.value : '';
-
-      const dayData = {
-        date: date,
-        start: newStart,
-        end: newEnd,
-        pause: newPause,
-        note: newNote
-      };
-
-      await TimeData.saveDay(date, dayData);
-      Toast.success('Pointage mis à jour');
-      closeModal();
-      loadCalendarView();
-    };
-  }
-
-  if (deleteBtn) {
-    deleteBtn.onclick = () => {
-      if (confirm('Supprimer ce pointage ?')) {
-        TimeData.deleteDay(date);
-        Toast.success('Pointage supprimé');
-        closeModal();
-        loadCalendarView();
-      }
-    };
-  }
-
-  if (cancelBtn) {
-    cancelBtn.onclick = closeModal;
-  }
-}
-
-function closeModal() {
-  const modal = document.getElementById("calendar-modal");
-  if (modal) {
-    modal.classList.add("hidden");
-  }
-}
-
-// =====================================
-// EXPORT DES DONNÉES
-// =====================================
-
-function initExportTab() {
-  const today = new Date();
-  const firstDayMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastDayMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  
-  const startInput = document.getElementById("export-start");
-  const endInput = document.getElementById("export-end");
-  
-  if (startInput) startInput.value = firstDayMonth.toISOString().split('T')[0];
-  if (endInput) endInput.value = lastDayMonth.toISOString().split('T')[0];
-}
-
-function initializeExportButtons() {
-  const csvBtn = document.getElementById("export-csv");
-  const jsonBtn = document.getElementById("export-json");
-  const monthBtn = document.getElementById("export-month");
-  const clearBtn = document.getElementById("clear-data");
-  
-  if (csvBtn) {
-    csvBtn.onclick = async () => {
-      const startDate = document.getElementById("export-start")?.value;
-      const endDate = document.getElementById("export-end")?.value;
-      
-      if (!startDate || !endDate) {
-        Toast.error('Veuillez sélectionner les dates');
-        return;
-      }
-      
-      try {
-        const data = await TimeData.getRange(startDate, endDate);
-        const csvContent = generateCSV(data);
-        downloadFile(csvContent, `timetrack_${startDate}_${endDate}.csv`, 'text/csv');
-        Toast.success('Export CSV téléchargé');
-      } catch (error) {
-        Toast.error('Erreur lors de l\'export CSV');
-      }
-    };
-  }
-  
-  if (jsonBtn) {
-    jsonBtn.onclick = async () => {
-      const startDate = document.getElementById("export-start")?.value;
-      const endDate = document.getElementById("export-end")?.value;
-      
-      if (!startDate || !endDate) {
-        Toast.error('Veuillez sélectionner les dates');
-        return;
-      }
-      
-      try {
-        const data = await TimeData.getRange(startDate, endDate);
-        const jsonContent = JSON.stringify(data, null, 2);
-        downloadFile(jsonContent, `timetrack_${startDate}_${endDate}.json`, 'application/json');
-        Toast.success('Export JSON téléchargé');
-      } catch (error) {
-        Toast.error('Erreur lors de l\'export JSON');
-      }
-    };
-  }
-  
-  if (monthBtn) {
-    monthBtn.onclick = async () => {
-      const year = calendarYear;
-      const month = calendarMonth + 1;
-      const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
-      const lastDay = new Date(year, month, 0).getDate();
-      const endDate = `${year}-${month.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`;
-      
-      try {
-        const data = await TimeData.getRange(startDate, endDate);
-        const csvContent = generateCSV(data);
-        const monthName = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-        downloadFile(csvContent, `timetrack_${monthName.replace(' ', '_')}.csv`, 'text/csv');
-        Toast.success(`Export ${monthName} téléchargé`);
-      } catch (error) {
-        Toast.error('Erreur lors de l\'export du mois');
-      }
-    };
-  }
-  
-  if (clearBtn) {
-    clearBtn.onclick = () => {
-      if (confirm('Êtes-vous sûr de vouloir effacer toutes les données ? Cette action est irréversible.')) {
-        if (confirm('Dernière confirmation : toutes vos données de pointage seront perdues !')) {
-          TimeData.clear();
-          Toast.success('Toutes les données ont été effacées');
-          loadWeeklyView();
-          loadCalendarView();
-        }
-      }
-    };
-  }
-}
-
-function generateCSV(data) {
-  const headers = ['Date', 'Début', 'Fin', 'Pause', 'Durée', 'Note'];
-  const csvRows = [headers.join(',')];
-  
-  data.forEach(row => {
-    const csvRow = row.map(cell => {
-      const cellStr = String(cell || '');
-      if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-        return `"${cellStr.replace(/"/g, '""')}"`;
-      }
-      return cellStr;
-    });
-    csvRows.push(csvRow.join(','));
-  });
-  
-  return csvRows.join('\n');
-}
-
-function downloadFile(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-// =====================================
-// GESTION DES ONGLETS
-// =====================================
-
-function initializeTabs() {
-  document.querySelectorAll(".tab-button").forEach(button => {
-    button.addEventListener("click", () => {
-      document.querySelectorAll(".tab-button").forEach(b => {
-        b.classList.remove("bg-blue-200");
-        b.classList.add("bg-gray-200");
-      });
-      document.querySelectorAll(".tab-content").forEach(c => c.classList.add("hidden"));
-
-      button.classList.remove("bg-gray-200");
-      button.classList.add("bg-blue-200");
-      const tabId = button.getAttribute("data-tab");
-      const tabContent = document.getElementById(tabId);
-      if (tabContent) {
-        tabContent.classList.remove("hidden");
-      }
-
-      switch(tabId) {
-        case "hebdo":
-          loadWeeklyView();
-          break;
-        case "calendrier":
-          loadCalendarView();
-          break;
-        case "export":
-          initExportTab();
-          break;
-      }
-    });
-  });
-}
-
-// =====================================
-// VÉRIFICATION DE CONNEXION (SANS /health)
-// =====================================
-
-async function checkConnection() {
-  try {
-    // ✅ Tester avec un endpoint existant, pas /health
-    const testDate = new Date().toISOString().split('T')[0];
-    const res = await fetch(`${CONFIG.API_BASE}/range?start=${testDate}&end=${testDate}`);
-    
-    if (res.ok) {
-      CONFIG.OFFLINE_MODE = false;
-      updateConnectionStatus(true);
-      console.log('✅ Connexion Google Sheets OK');
-      return true;
-    } else {
-      throw new Error(`HTTP ${res.status}`);
-    }
-  } catch (error) {
-    CONFIG.OFFLINE_MODE = true;
-    updateConnectionStatus(false);
-    console.log('⚠️ Mode hors ligne activé');
-    return false;
-  }
-}
-
-// =====================================
-// INITIALISATION PRINCIPALE
-// =====================================
-
-async function initializeHybridApp() {
-  console.log('🚀 Initialisation TimeTrack Hybride...');
-  
-  // Vérifier la connexion SANS utiliser /health
-  await checkConnection();
-  
-  // Migration initiale des données historiques
-  await TimeData.performInitialSync();
-
-  // Initialiser tous les composants
-  initializeTabs();
-  initializeTimeTracking();
-  initializeCalendarNavigation();
-  initializeExportButtons();
-  
-  // Démarrer la synchronisation automatique
-  TimeData.scheduleSync();
-
-  // Charger la vue par défaut
-  await loadWeeklyView();
-  
-  console.log('✅ TimeTrack Hybride initialisé avec succès');
 }
 
 // =====================================
 // COMMANDES DE DEBUG
 // =====================================
 
-if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname.includes('github'))) {
-  window.TimeTrackDebug = {
-    showStats: () => console.log('📊 Stats:', TimeData.getSyncStats()),
-    forceSync: () => TimeData.performInitialSync(),
-    showLocal: () => console.log('💾 Local:', TimeData.getLocalData()),
-    clearLocal: () => {
-      TimeData.clear();
-      console.log('🗑️ Données locales effacées');
-    },
-    testConnection: () => checkConnection()
-  };
+window.TimeTrackDebug = {
+  testExcel: async () => {
+    console.log('🧪 Test export Excel...');
+    const testData = [
+      ['2025-01-15', '09:00', '17:00', '60 min', '07h00', 'Test'],
+      ['2025-01-16', '08:30', '16:30', '30 min', '07h30', 'Test 2']
+    ];
+    
+    try {
+      await generateExcel(testData, 'test_export.xlsx');
+      console.log('✅ Test Excel réussi');
+      return true;
+    } catch (error) {
+      console.error('❌ Test Excel échoué:', error);
+      return false;
+    }
+  },
   
-  console.log(`
-🔧 Commandes debug disponibles:
-- TimeTrackDebug.showStats() : Voir les stats de sync
-- TimeTrackDebug.forceSync() : Forcer une re-synchronisation
-- TimeTrackDebug.showLocal() : Voir les données locales
-- TimeTrackDebug.clearLocal() : Effacer les données locales
-- TimeTrackDebug.testConnection() : Tester la connexion
-  `);
-}
+  showLocal: () => console.log('💾 Données locales:', TimeData.getLocalData()),
+  clearLocal: () => TimeData.clear()
+};
 
 // =====================================
 // DÉMARRAGE
 // =====================================
 
-document.addEventListener('DOMContentLoaded', initializeHybridApp);
+document.addEventListener('DOMContentLoaded', initializeApp);
 
-console.log('🔄 TimeTrack Hybride COMPLET (sans erreurs /health) chargé');
+console.log('🔄 TimeTrack avec Export Excel corrigé chargé');
+console.log('🧪 Commandes debug: TimeTrackDebug.testExcel(), TimeTrackDebug.showLocal()');
