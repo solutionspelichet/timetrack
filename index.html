@@ -1,294 +1,102 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Application de suivi du temps de travail personnel" />
-  
-  <!-- Favicon -->
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕒</text></svg>" />
-  
-  <!-- PWA Configuration -->
-  <link rel="manifest" href="./manifest.json" />
-  <meta name="theme-color" content="#2563eb" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="TimeTrack" />
-  
-  <title>TimeTrack Perso</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TimeTrack Simple</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <link rel="icon" href="./icons/icon-192.png" />
   <style>
-    /* Styles pour PWA */
-    @media (display-mode: standalone) {
-      body {
-        padding-top: env(safe-area-inset-top);
-        padding-bottom: env(safe-area-inset-bottom);
-      }
-    }
-    
-    /* Animation de chargement */
-    .loading {
-      opacity: 0.5;
-      pointer-events: none;
-    }
-    
-    /* Notification toast */
-    .toast {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #10b981;
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      z-index: 1000;
-      transform: translateX(400px);
-      transition: transform 0.3s ease;
-    }
-    
-    .toast.show {
-      transform: translateX(0);
-    }
-    
-    .toast.error {
-      background: #ef4444;
-    }
+    :root { --bg:#0b1220; --card:#0f172a; --ink:#e2e8f0; --muted:#94a3b8; --accent:#22d3ee; }
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; background:linear-gradient(160deg,#0b1220 0%,#111827 100%); color:var(--ink);}
+    .wrap{max-width:960px;margin:0 auto;padding:24px}
+    .card{background:rgba(15,23,42,.7);border:1px solid rgba(148,163,184,.15);border-radius:18px;padding:18px;backdrop-filter: blur(6px);}
+    h1{margin:0 0 12px;font-weight:700;font-size:28px}
+    .grid{display:grid;gap:12px}
+    @media(min-width:800px){.grid{grid-template-columns: 1.5fr 1fr}}
+    label{display:block;margin-bottom:6px;color:var(--muted);font-size:14px}
+    input,select,button,textarea{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(148,163,184,.3);background:#0b1220;color:var(--ink)}
+    button{cursor:pointer;border:1px solid rgba(34,211,238,.35);}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border-bottom:1px solid rgba(148,163,184,.15);padding:8px;font-size:14px}
+    th{color:var(--muted);font-weight:600;text-align:left}
+    .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(148,163,184,.25);border-radius:999px;color:var(--muted);font-size:12px}
+    .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
   </style>
 </head>
-<body class="bg-gray-100 text-gray-800 font-sans p-4 min-h-screen">
-
-  <!-- Toast pour les notifications -->
-  <div id="toast" class="toast"></div>
-
-  <div class="max-w-2xl mx-auto bg-white shadow-md rounded-lg p-6">
-    <div class="flex items-center justify-center mb-4">
-      <h1 class="text-2xl font-bold text-center">🕒 TimeTrack Perso</h1>
-      <div id="status-indicator" class="ml-4 w-3 h-3 rounded-full bg-gray-400" title="Statut de connexion"></div>
-    </div>
-
-    <!-- Onglets -->
-    <div class="flex space-x-2 mb-4 overflow-x-auto">
-      <button class="tab-button font-semibold px-4 py-2 bg-blue-200 rounded whitespace-nowrap" data-tab="pointage">Pointage</button>
-      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="hebdo">Hebdo</button>
-      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="calendrier">Calendrier</button>
-      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="export">Export</button>
-    </div>
-
-    <!-- Pointage -->
-    <div class="tab-content" id="pointage">
-      <div class="grid grid-cols-2 gap-2 mb-4">
-        <button id="start" class="bg-green-500 hover:bg-green-600 text-white px-4 py-3 rounded transition-colors">
-          <span class="block text-lg">▶️</span>
-          <span class="text-sm">Démarrer</span>
-        </button>
-        <button id="stop" class="bg-red-500 hover:bg-red-600 text-white px-4 py-3 rounded transition-colors">
-          <span class="block text-lg">⏹️</span>
-          <span class="text-sm">Terminer</span>
-        </button>
-      </div>
-
-      <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-2">
-          <label class="block">
-            <span class="text-sm font-medium">Début</span>
-            <input type="time" id="manualStart" class="w-full border rounded px-3 py-2" />
-          </label>
-          <label class="block">
-            <span class="text-sm font-medium">Fin</span>
-            <input type="time" id="manualEnd" class="w-full border rounded px-3 py-2" />
-          </label>
+<body>
+  <div class="wrap">
+    <div class="card" style="margin-bottom:12px">
+      <h1>TimeTrack Simple</h1>
+      <div class="row">
+        <div>
+          <label>Identifiant utilisateur</label>
+          <input id="userId" placeholder="ex: aguedou" />
         </div>
-        
-        <label class="block">
-          <span class="text-sm font-medium">Pause déjeuner (min)</span>
-          <input type="number" id="pause" value="60" min="0" max="240" class="w-full border rounded px-3 py-2" />
-        </label>
-        
-        <label class="block">
-          <span class="text-sm font-medium">Note</span>
-          <input type="text" id="note" placeholder="Ajouter une note..." class="w-full border rounded px-3 py-2" />
-        </label>
+        <div>
+          <label>Backend URL (Apps Script)</label>
+          <input id="baseUrl" placeholder="https://script.google.com/macros/s/XXXX/exec" />
+        </div>
       </div>
-
-      <button id="submit" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded transition-colors">
-        📤 Enregistrer
-      </button>
-      
-      <!-- Durée en cours -->
-      <div id="current-duration" class="mt-4 p-3 bg-blue-50 rounded text-center hidden">
-        <span class="text-sm text-gray-600">Temps écoulé :</span>
-        <div class="text-xl font-bold text-blue-600" id="duration-display">00h00</div>
+      <div class="row" style="margin-top:8px">
+        <button id="saveCfg">💾 Enregistrer la config</button>
+        <button id="logout">🚪 Réinitialiser</button>
+      </div>
+      <div style="margin-top:8px">
+        <span class="pill" id="pwaState">PWA: …</span>
+        <span class="pill" id="backendState">Backend: …</span>
       </div>
     </div>
 
-    <!-- Hebdo -->
-    <div class="tab-content hidden" id="hebdo">
-      <div class="flex justify-between items-center mb-4">
-        <h2 class="text-lg font-semibold">Semaine en cours</h2>
-        <div class="text-sm text-gray-600">
-          Total: <span id="weekly-total" class="font-bold">--h--</span>
+    <div class="grid">
+      <div class="card">
+        <h2 style="margin:0 0 10px">Pointage</h2>
+        <div class="row">
+          <button data-type="start">▶️ Début journée</button>
+          <button data-type="end">⏹️ Fin journée</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button data-type="pause_start">⏸️ Début pause</button>
+          <button data-type="pause_end">▶️ Fin pause</button>
+        </div>
+        <div style="margin-top:8px">
+          <label>Note (optionnelle)</label>
+          <input id="note" placeholder="ex: chantier ONU – zone B" />
         </div>
       </div>
-      
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm border rounded">
-          <thead class="bg-gray-200">
-            <tr>
-              <th class="p-2 border text-left">Jour</th>
-              <th class="p-2 border">Début</th>
-              <th class="p-2 border">Fin</th>
-              <th class="p-2 border">Pause</th>
-              <th class="p-2 border">Durée</th>
-              <th class="p-2 border">Note</th>
-            </tr>
-          </thead>
-          <tbody id="hebdo-body"></tbody>
-        </table>
+
+      <div class="card">
+        <h2 style="margin:0 0 10px">Consulter</h2>
+        <div class="row">
+          <div>
+            <label>Début</label>
+            <input id="startDate" type="date" />
+          </div>
+          <div>
+            <label>Fin</label>
+            <input id="endDate" type="date" />
+          </div>
+        </div>
+        <div style="margin-top:8px" class="row">
+          <button id="loadRange">🔄 Charger</button>
+          <button id="today">📅 Aujourd’hui</button>
+        </div>
       </div>
     </div>
 
-    <!-- Calendrier -->
-    <div class="tab-content hidden" id="calendrier">
-      <div class="flex justify-between items-center mb-4">
-        <button id="prev-month" class="px-3 py-2 bg-gray-300 hover:bg-gray-400 rounded transition-colors">◀️</button>
-        <h3 id="calendar-title" class="text-lg font-semibold"></h3>
-        <button id="next-month" class="px-3 py-2 bg-gray-300 hover:bg-gray-400 rounded transition-colors">▶️</button>
-      </div>
-
-      <!-- En-têtes des jours -->
-      <div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs font-semibold text-gray-600">
-        <div>L</div><div>M</div><div>M</div><div>J</div><div>V</div><div>S</div><div>D</div>
-      </div>
-
-      <div id="calendar-grid" class="grid grid-cols-7 gap-1 text-center text-sm mb-4"></div>
-
-      <div class="flex justify-center">
-        <button id="export-month" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
-          📤 Exporter ce mois
-        </button>
-      </div>
-    </div>
-
-    <!-- Export -->
-    <div class="tab-content hidden" id="export">
-      <h2 class="text-lg font-semibold mb-4">Exporter les données</h2>
-      
-      <div class="space-y-4">
-        <div class="grid grid-cols-2 gap-2">
-          <label class="block">
-            <span class="text-sm font-medium">Date début</span>
-            <input type="date" id="export-start" class="w-full border rounded px-3 py-2" />
-          </label>
-          <label class="block">
-            <span class="text-sm font-medium">Date fin</span>
-            <input type="date" id="export-end" class="w-full border rounded px-3 py-2" />
-          </label>
-        </div>
-        
-        <div class="flex space-x-2">
-          <button id="export-csv" class="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded transition-colors">
-            📊 CSV
-          </button>
-          <button id="export-excel" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors">
-            📗 Excel
-          </button>
-          <button id="export-json" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded transition-colors">
-            📄 JSON
-          </button>
-        </div>
-        
-        <div class="text-center">
-          <button id="clear-data" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors text-sm">
-            🗑️ Effacer toutes les données
-          </button>
-        </div>
-      </div>
+    <div class="card" style="margin-top:12px">
+      <h2 style="margin:0 0 10px">Entrées</h2>
+      <table>
+        <thead>
+          <tr><th>Date/Heure</th><th>Type</th><th>Note</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
     </div>
   </div>
 
-  <!-- Modal de modification calendrier -->
-  <div id="calendar-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
-    <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
-      <h2 class="text-lg font-bold mb-4">Modifier le pointage du <span id="modal-date-label"></span></h2>
-
-      <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-2">
-          <label class="block">
-            <span class="text-sm font-medium">Début</span>
-            <input type="time" id="modal-start" class="w-full border rounded px-3 py-2" />
-          </label>
-          <label class="block">
-            <span class="text-sm font-medium">Fin</span>
-            <input type="time" id="modal-end" class="w-full border rounded px-3 py-2" />
-          </label>
-        </div>
-        
-        <label class="block">
-          <span class="text-sm font-medium">Pause (min)</span>
-          <input type="number" id="modal-pause" class="w-full border rounded px-3 py-2" value="60" />
-        </label>
-        
-        <label class="block">
-          <span class="text-sm font-medium">Note</span>
-          <input type="text" id="modal-note" class="w-full border rounded px-3 py-2" />
-        </label>
-      </div>
-
-      <div class="mt-6 flex space-x-2">
-        <button id="modal-save" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors">
-          💾 Enregistrer
-        </button>
-        <button id="modal-delete" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors">
-          🗑️
-        </button>
-        <button id="modal-cancel" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded transition-colors">
-          Annuler
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Scripts -->
-  <script src="./script.js"></script>
-  <script>
-    // Enregistrement du Service Worker
-    if ('serviceWorker' in navigator && /^https?:$/i.test(location.protocol)) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js')
-          .then(registration => {
-            console.log('✅ Service Worker enregistré:', registration.scope);
-            updateStatus('online');
-          })
-          .catch(error => {
-            console.error('❌ Erreur Service Worker:', error);
-          });
-      });
-    }
-
-    // Gestion du statut online/offline
-    function updateStatus(status) {
-      const indicator = document.getElementById('status-indicator');
-      if (status === 'online') {
-        indicator.className = 'ml-4 w-3 h-3 rounded-full bg-green-400';
-        indicator.title = 'En ligne';
-      } else {
-        indicator.className = 'ml-4 w-3 h-3 rounded-full bg-red-400';
-        indicator.title = 'Hors ligne';
-      }
-    }
-
-    window.addEventListener('online', () => updateStatus('online'));
-    window.addEventListener('offline', () => updateStatus('offline'));
-    
-    // Statut initial
-    updateStatus(navigator.onLine ? 'online' : 'offline');
-
-    // Gestion des notifications push (optionnel)
-    if ('Notification' in window && 'serviceWorker' in navigator) {
-      Notification.requestPermission();
-    }
-  </script>
+  <script src="./script.js" defer></script>
 </body>
 </html>
