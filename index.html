@@ -73,6 +73,8 @@
       <button class="tab-button font-semibold px-4 py-2 bg-blue-200 rounded whitespace-nowrap" data-tab="pointage">Pointage</button>
       <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="hebdo">Hebdo</button>
       <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="calendrier">Calendrier</button>
+      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="conges">Congés</button>
+      <button data-tab="calendrier">Calendrier</button>
       <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="export">Export</button>
     </div>
 
@@ -172,7 +174,46 @@
     </div>
 
     <!-- Export -->
-    <div class="tab-content hidden" id="export">
+    <div class="tab-content hidden" 
+    <!-- Congés -->
+    <div class="tab-content hidden" id="conges">
+      <div class="space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-sm font-medium">Début</span>
+            <input type="date" id="leave-start" class="w-full border rounded px-3 py-2" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Fin</span>
+            <input type="date" id="leave-end" class="w-full border rounded px-3 py-2" />
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-sm font-medium">Type</span>
+            <select id="leave-type" class="w-full border rounded px-3 py-2">
+              <option value="vacances">Vacances</option>
+              <option value="conge">Congé payé</option>
+              <option value="rtt">RTT</option>
+              <option value="maladie">Maladie</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Note</span>
+            <input type="text" id="leave-note" class="w-full border rounded px-3 py-2" placeholder="Optionnel (ex: Semaine 34)" />
+          </label>
+        </div>
+        <div class="flex gap-2">
+          <button id="leave-add" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors">Ajouter la période</button>
+          <button id="leave-clear" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors">Supprimer tous les congés</button>
+        </div>
+        <div>
+          <h3 class="font-semibold mb-2">Mes congés</h3>
+          <div id="leave-list" class="divide-y border rounded"></div>
+        </div>
+      </div>
+    </div>
+id="export">
       <h2 class="text-lg font-semibold mb-4">Exporter les données</h2>
       
       <div class="space-y-4">

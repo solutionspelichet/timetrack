@@ -11,6 +11,15 @@ const CONFIG = {
 let calendarMonth = new Date().getMonth();
 let calendarYear = new Date().getFullYear();
 
+// Utilitaire: date locale YYYY-MM-DD
+function ymdLocal(d=new Date()){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,'0');
+  const day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+
 // =====================================
 // STOCKAGE LOCAL
 // =====================================
@@ -70,15 +79,15 @@ const TimeData = {
     return true;
   },
   
-  // Nouvelle fonction pour créer un jour de congé
-  createHolidayDay: async (date, note = 'Congé') => {
+  // Création de jour spécial (férié/congé)
+  createSpecialDay: async (date, type = 'holiday', note = 'Jour spécial') => {
     const holidayData = {
       date: date,
       start: '09:00',
       end: '17:00', 
       pause: 60,
       note: note,
-      type: 'holiday' // Marquer comme jour de congé
+      type: type // 'holiday' ou 'leave'
     };
     
     await TimeData.saveDay(date, holidayData);
@@ -139,7 +148,25 @@ const TimeData = {
     return result;
   },
   
-  clear: () => {
+  
+  ,
+  // Supprimer un jour
+  deleteDay: async (date) => {
+    const allData = TimeData.getAll();
+    if (allData[date]) {
+      delete allData[date];
+      Storage.set('timetrack_data', allData);
+      // Optionnel: appeler API pour delete si dispo
+      return true;
+    }
+    return false;
+  },
+  
+  // Compat: ancien nom pour les jours fériés
+  createHolidayDay: async (date, note = 'Jour férié') => {
+    return await TimeData.createSpecialDay(date, 'holiday', note);
+  }
+clear: () => {
     Storage.set('timetrack_data', {});
     return true;
   }
@@ -583,7 +610,7 @@ async function loadCalendarView() {
     }
 
     // Jours du mois
-    const today = new Date().toISOString().split('T')[0];
+    const today = ymdLocal(new Date());
     
     for (let d = 1; d <= totalDays; d++) {
       const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
@@ -597,6 +624,13 @@ async function loadCalendarView() {
       
       // Couleurs selon le type et le statut
       if (dayData?.type === 'holiday') {
+        bg = 'bg-blue-300';
+        textColor = 'text-blue-800';
+        emoji = '🏖️';
+      } else if (dayData?.type === 'leave') {
+        bg = 'bg-indigo-300';
+        textColor = 'text-indigo-800';
+        emoji = '🌴';
         bg = 'bg-blue-300';
         textColor = 'text-blue-800';
         emoji = '🏖️';
@@ -862,7 +896,7 @@ async function createHolidayPeriod(startDate, endDate, note = 'Congés') {
     
     // Ignorer les weekends (optionnel)
     if (!TimeData.isWeekend(dateStr)) {
-      await TimeData.createHolidayDay(dateStr, note);
+      await TimeData.createSpecialDay(dateStr, 'leave', note);
       count++;
     }
   }
@@ -1111,6 +1145,107 @@ window.TimeTrackDebug = {
 
 // =====================================
 // DÉMARRAGE
+
+
+// =====================================
+// CONGÉS & VACANCES
+// =====================================
+
+async function createLeavePeriod(startDate, endDate, leaveType='vacances', note='Congés', includeWeekends=false){
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (isNaN(start) || isNaN(end) || end < start) {
+    showToast('Période invalide', 'error');
+    return 0;
+  }
+  let count = 0;
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
+    const dateStr = ymdLocal(d);
+    if (!includeWeekends && TimeData.isWeekend(dateStr)) continue;
+    const data = {
+      date: dateStr,
+      start: '',
+      end: '',
+      pause: 0,
+      note: (note ? note+' ' : '') + '[' + leaveType + ']',
+      type: 'leave'
+    };
+    await TimeData.saveDay(dateStr, data);
+    count++;
+  }
+  showToast(`${count} jour(s) de congé ajoutés`, 'success');
+  return count;
+}
+
+function renderLeaveList(){
+  const container = document.getElementById('leave-list');
+  if (!container) return;
+  container.innerHTML = '';
+  const all = TimeData.getAll();
+  const entries = Object.entries(all)
+    .filter(([d, data]) => data && (data.type === 'leave'))
+    .sort((a,b) => a[0].localeCompare(b[0]));
+  if (entries.length === 0){
+    container.innerHTML = '<div class="p-3 text-sm text-gray-500">Aucun congé enregistré.</div>';
+    return;
+  }
+  for (const [date, data] of entries){
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between p-2';
+    const label = document.createElement('div');
+    label.className = 'text-sm';
+    label.textContent = new Date(date).toLocaleDateString('fr-FR', { weekday:'short', year:'numeric', month:'short', day:'numeric' }) + (data.note? ' — '+data.note : '');
+    const btn = document.createElement('button');
+    btn.className = 'text-red-600 hover:underline text-sm';
+    btn.textContent = 'Supprimer';
+    btn.onclick = async () => {
+      await TimeData.deleteDay(date);
+      renderLeaveList();
+      // Refresh calendar if visible
+      const calBtn = document.querySelector('[data-tab="calendrier"]');
+      if (calBtn && calBtn.classList.contains('bg-blue-200')) {
+        try { loadCalendarView(); } catch(e){}
+      }
+    };
+    row.appendChild(label);
+    row.appendChild(btn);
+    container.appendChild(row);
+  }
+}
+
+function initCongesTab(){
+  const start = document.getElementById('leave-start');
+  const end = document.getElementById('leave-end');
+  const type = document.getElementById('leave-type');
+  const note = document.getElementById('leave-note');
+  const add = document.getElementById('leave-add');
+  const clear = document.getElementById('leave-clear');
+  if (start && end){
+    const today = new Date();
+    const ymd = ymdLocal(today);
+    start.value = ymd;
+    end.value = ymd;
+  }
+  if (add){
+    add.addEventListener('click', async () => {
+      await createLeavePeriod(start.value, end.value, type.value, note.value, false);
+      renderLeaveList();
+    });
+  }
+  if (clear){
+    clear.addEventListener('click', async () => {
+      const all = TimeData.getAll();
+      for (const [d, data] of Object.entries(all)){
+        if (data && data.type === 'leave'){
+          await TimeData.deleteDay(d);
+        }
+      }
+      renderLeaveList();
+      showToast('Tous les congés ont été supprimés', 'warning');
+    });
+  }
+  renderLeaveList();
+}
 // =====================================
 document.addEventListener('DOMContentLoaded', initApp);
 
