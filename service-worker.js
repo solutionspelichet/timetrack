@@ -1,4 +1,4 @@
-const CACHE_NAME = 'timetrack-v1.2.1';
+const CACHE_NAME = 'timetrack-v1.2.0';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -126,6 +126,21 @@ self.addEventListener('message', event => {
   }
 });
 
+// Notification de mise à jour disponible
+self.addEventListener('updatefound', () => {
+  console.log('[SW] Mise à jour disponible');
+  
+  self.clients.matchAll().then(clients => {
+    clients.forEach(client => {
+      client.postMessage({
+        type: 'UPDATE_AVAILABLE',
+        message: 'Une nouvelle version est disponible'
+      });
+    });
+  });
+});
+
+// Gestion du mode hors ligne
 self.addEventListener('sync', event => {
   if (event.tag === 'background-sync') {
     console.log('[SW] Synchronisation en arrière-plan');

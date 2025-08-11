@@ -3,7 +3,7 @@
 // =====================================
 
 const CONFIG = {
-  API_BASE: 'https://timetrack-api.onrender.com/api',
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbytSVwrFniXpF5BCasoxBkz48X2MZtsEb-xOY_R5LfBxr-0fCY7iIrC9nL7rkGy5E9smQ/exec',
   OFFLINE_MODE: false,
   INITIAL_SYNC_DONE: false
 };
@@ -11,83 +11,45 @@ const CONFIG = {
 let calendarMonth = new Date().getMonth();
 let calendarYear = new Date().getFullYear();
 
-// Utilitaire: date locale YYYY-MM-DD
-function ymdLocal(d=new Date()){
-  const y=d.getFullYear();
-  const m=String(d.getMonth()+1).padStart(2,'0');
-  const day=String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
-}
-
-
 // =====================================
 // STOCKAGE LOCAL
 // =====================================
-const Storage = {
-  get: (key) => {
-    try {
-      const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : null;
-    } catch (e) {
-      return null;
-    }
-  },
-  
-  set: (key, value) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-};
+const Storage = { get: (_)=>undefined, set: (_k,_v)=>{} };
 
 // =====================================
 // GESTION DES DONNÉES AVEC CONGÉS
 // =====================================
 const TimeData = {
-  getAll: () => Storage.get('timetrack_data') || {},
+  getAll: () => ({}),
   
   saveDay: async (date, data) => {
-    const allData = TimeData.getAll();
-    allData[date] = data;
-    Storage.set('timetrack_data', allData);
-    
-    // Essayer de sauvegarder sur le cloud
-    if (!CONFIG.OFFLINE_MODE) {
-      try {
-        await fetch(`${CONFIG.API_BASE}/update`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            date: date,
-            start: data.start,
-            end: data.end,
-            pause: data.pause,
-            note: data.note
-          })
-        });
-        showToast('Sauvegardé localement et sur Google Sheets', 'success');
-      } catch (error) {
-        showToast('Sauvegardé localement seulement', 'warning');
-      }
-    } else {
-      showToast('Sauvegardé localement', 'success');
+    // Sauvegarde uniquement sur Google Apps Script
+    if (!CONFIG.GAS_URL) { showToast('GAS_URL manquant', 'error'); return false; }
+    try {
+      const resp = await fetch(`${CONFIG.GAS_URL}?action=update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, data })
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      showToast('Sauvegardé (Google Sheets)', 'success');
+      return true;
+    } catch (e) {
+      console.error('Erreur saveDay GAS:', e);
+      showToast('Échec de sauvegarde (Google Sheets)', 'error');
+      return false;
     }
-    
-    return true;
   },
   
-  // Création de jour spécial (férié/congé)
-  createSpecialDay: async (date, type = 'holiday', note = 'Jour spécial') => {
+  // Nouvelle fonction pour créer un jour de congé
+  createHolidayDay: async (date, note = 'Congé') => {
     const holidayData = {
       date: date,
       start: '09:00',
       end: '17:00', 
       pause: 60,
       note: note,
-      type: type // 'holiday' ou 'leave'
+      type: 'holiday' // Marquer comme jour de congé
     };
     
     await TimeData.saveDay(date, holidayData);
@@ -107,69 +69,23 @@ const TimeData = {
   },
   
   getRange: async (startDate, endDate) => {
-    // Essayer de récupérer depuis le cloud d'abord
-    if (!CONFIG.OFFLINE_MODE) {
-      try {
-        const response = await fetch(`${CONFIG.API_BASE}/range?start=${startDate}&end=${endDate}`);
-        if (response.ok) {
-          const cloudData = await response.json();
-          return cloudData;
-        }
-      } catch (error) {
-        console.log('Utilisation des données locales');
-      }
-    }
-    
-    // Utiliser les données locales
-    const localData = TimeData.getAll();
-    const result = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0];
-      const dayData = localData[dateStr];
-      
-      if (dayData) {
-        const duration = calculateDuration(dayData.start, dayData.end, dayData.pause || 60);
-        result.push([
-          dateStr,
-          dayData.start || '',
-          dayData.end || '',
-          (dayData.pause || 60) + ' min',
-          formatMinutes(duration),
-          dayData.note || ''
-        ]);
+    try {
+      const response = await fetch(`${CONFIG.GAS_URL}?action=range&start=${startDate}&end=${endDate}`);
+      if (response.ok) {
+        const cloudData = await response.json();
+        return cloudData || {};
       } else {
-        result.push([dateStr, '', '', '60 min', '00h00', '']);
+        showToast('Lecture Google Sheets échouée', 'error');
+        return {};
       }
+    } catch (error) {
+      console.error('Erreur getRange GAS:', error);
+      showToast('Impossible de lire Google Sheets', 'error');
+      return {};
     }
-    
-    return result;
   },
   
-  
-  ,
-  // Supprimer un jour
-  deleteDay: async (date) => {
-    const allData = TimeData.getAll();
-    if (allData[date]) {
-      delete allData[date];
-      Storage.set('timetrack_data', allData);
-      // Optionnel: appeler API pour delete si dispo
-      return true;
-    }
-    return false;
-  },
-  
-  // Compat: ancien nom pour les jours fériés
-  createHolidayDay: async (date, note = 'Jour férié') => {
-    return await TimeData.createSpecialDay(date, 'holiday', note);
-  }
-clear: () => {
-    Storage.set('timetrack_data', {});
-    return true;
-  }
+  clear: async () => { try { await fetch(`${CONFIG.GAS_URL}?action=clear`, {method:'POST'}); return true; } catch(e){ return false; } }
 };
 
 // =====================================
@@ -343,7 +259,7 @@ function exportToHTML(data, filename) {
 // =====================================
 // EXPORTS STANDARDS
 // =====================================
-function exportToCSV(data, filename) {
+function exportToCSV(rowsFromRangeData(data), filename) {
   const headers = ['Date', 'Début', 'Fin', 'Pause', 'Durée', 'Note'];
   let csv = headers.join(',') + '\n';
   
@@ -431,7 +347,8 @@ async function loadWeeklyView() {
   const formattedEnd = today.toISOString().split('T')[0];
 
   try {
-    const data = await TimeData.getRange(formattedStart, formattedEnd);
+    const raw = await TimeData.getRange(formattedStart, formattedEnd);
+    const data = rowsFromRangeData(raw);
     renderWeeklyTable(data);
   } catch (error) {
     console.error('Erreur chargement semaine:', error);
@@ -573,115 +490,34 @@ async function loadCalendarView() {
   const start = `${year}-${(month + 1).toString().padStart(2, '0')}-01`;
   const end = `${year}-${(month + 1).toString().padStart(2, '0')}-${totalDays.toString().padStart(2, '0')}`;
   
+  
   try {
-    const data = await TimeData.getRange(start, end);
+    const raw = await TimeData.getRange(start, end);
     const datesMap = new Map();
-    const localData = TimeData.getAll();
-    
-    data.forEach(row => {
-      const [date, debut, fin, pause, duration, note] = row;
-      const dayData = localData[date];
-      
-      let status = 'absent';
-      let type = 'normal';
-      
-      if (dayData) {
-        type = dayData.type || 'normal';
+    if (Array.isArray(raw)) {
+      raw.forEach(row => {
+        const [date, debut, fin, pause, duration, note] = row;
+        const type = 'normal'; // sans localStorage, pas d'override ici
+        let status = 'absent';
         if (debut && fin) status = 'complet';
         else if (debut) status = 'partiel';
-      }
-      
-      datesMap.set(date, { 
-        debut, 
-        fin, 
-        status, 
-        note, 
-        pause: parseInt(pause) || 60,
-        duration,
-        type: type
+        datesMap.set(date, { debut, fin, status, note, pause: parseInt(pause) || 60, duration, type });
       });
-    });
-
-    // Cases vides pour aligner le premier jour
-    for (let i = 0; i < startDayOfWeek; i++) {
-      const empty = document.createElement('div');
-      empty.className = 'p-2';
-      grid.appendChild(empty);
+    } else {
+      Object.entries(raw).forEach(([date, obj]) => {
+        const debut = obj.start || obj.debut || '';
+        const fin = obj.end || obj.fin || '';
+        const pause = parseInt(obj.pause ?? 60) || 0;
+        const duration = obj.duration || formatMinutes(calculateDuration(debut, fin, pause));
+        const type = obj.type || 'normal';
+        let status = 'absent';
+        if (debut && fin) status = 'complet';
+        else if (debut) status = 'partiel';
+        datesMap.set(date, { debut, fin, status, note: obj.note || '', pause, duration, type });
+      });
     }
-
-    // Jours du mois
-    const today = ymdLocal(new Date());
-    
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = `${year}-${(month + 1).toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-      const cell = document.createElement('div');
-      const dayData = datesMap.get(dateStr);
-      const isWeekend = TimeData.isWeekend(dateStr);
-
-      let bg = 'bg-gray-200';
-      let textColor = 'text-gray-700';
-      let emoji = '';
-      
-      // Couleurs selon le type et le statut
-      if (dayData?.type === 'holiday') {
-        bg = 'bg-blue-300';
-        textColor = 'text-blue-800';
-        emoji = '🏖️';
-      } else if (dayData?.type === 'leave') {
-        bg = 'bg-indigo-300';
-        textColor = 'text-indigo-800';
-        emoji = '🌴';
-        bg = 'bg-blue-300';
-        textColor = 'text-blue-800';
-        emoji = '🏖️';
-      } else if (isWeekend) {
-        bg = 'bg-gray-300';
-        textColor = 'text-gray-600';
-        emoji = '🏠';
-      } else if (dayData?.status === 'complet') {
-        bg = 'bg-green-300';
-        textColor = 'text-green-800';
-        emoji = '✅';
-      } else if (dayData?.status === 'partiel') {
-        bg = 'bg-yellow-300';
-        textColor = 'text-yellow-800';
-        emoji = '⏰';
-      }
-      
-      if (dateStr === today) {
-        bg += ' ring-2 ring-blue-500';
-      }
-
-      cell.className = `${bg} ${textColor} p-2 rounded cursor-pointer hover:bg-opacity-70 transition-colors text-center relative`;
-      
-      const dayNumber = document.createElement('div');
-      dayNumber.textContent = d;
-      dayNumber.className = 'font-semibold';
-      cell.appendChild(dayNumber);
-      
-      // Emoji pour indiquer le type
-      if (emoji) {
-        const emojiDiv = document.createElement('div');
-        emojiDiv.textContent = emoji;
-        emojiDiv.className = 'text-xs';
-        cell.appendChild(emojiDiv);
-      }
-      
-      // Durée si disponible
-      if (dayData?.duration && dayData.duration !== '00h00') {
-        const duration = document.createElement('div');
-        duration.textContent = dayData.duration;
-        duration.className = 'text-xs mt-1';
-        cell.appendChild(duration);
-      }
-      
-      cell.onclick = () => {
-        openModal(dateStr, dayData?.debut, dayData?.fin, dayData?.status, dayData?.note || '', dayData?.pause || 60, dayData?.type || 'normal');
-      };
-      
-      grid.appendChild(cell);
-    }
-  } catch (error) {
+    // --- suite d'origine (construction du grid) continue ici ---
+catch (error) {
     console.error('Erreur chargement calendrier:', error);
     showToast('Erreur lors du chargement du calendrier', 'error');
   }
@@ -896,7 +732,7 @@ async function createHolidayPeriod(startDate, endDate, note = 'Congés') {
     
     // Ignorer les weekends (optionnel)
     if (!TimeData.isWeekend(dateStr)) {
-      await TimeData.createSpecialDay(dateStr, 'leave', note);
+      await TimeData.createHolidayDay(dateStr, note);
       count++;
     }
   }
@@ -1012,7 +848,7 @@ function initExports() {
       
       try {
         const data = await TimeData.getRange(start, end);
-        exportToCSV(data, `timetrack_${start}_${end}.csv`);
+        exportToCSV(rowsFromRangeData(data), `timetrack_${start}_${end}.csv`);
         showToast('Export CSV terminé', 'success');
       } catch (error) {
         showToast('Erreur export CSV', 'error');
@@ -1032,7 +868,7 @@ function initExports() {
       
       try {
         const data = await TimeData.getRange(start, end);
-        await exportToExcel(data, `timetrack_${start}_${end}.xlsx`);
+        await exportToExcel(rowsFromRangeData(data), `timetrack_${start}_${end}.xlsx`);
       } catch (error) {
         console.error('Erreur:', error);
         showToast('Erreur export Excel', 'error');
@@ -1071,7 +907,7 @@ function initExports() {
       try {
         const data = await TimeData.getRange(startDate, endDate);
         const monthName = new Date(year, month - 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-        await exportToExcel(data, `timetrack_${monthName.replace(' ', '_')}.xlsx`);
+        await exportToExcel(rowsFromRangeData(data), `timetrack_${monthName.replace(' ', '_')}.xlsx`);
         showToast(`Export Excel ${monthName} terminé`, 'success');
       } catch (error) {
         console.error('Erreur export mensuel:', error);
@@ -1145,109 +981,23 @@ window.TimeTrackDebug = {
 
 // =====================================
 // DÉMARRAGE
-
-
-// =====================================
-// CONGÉS & VACANCES
-// =====================================
-
-async function createLeavePeriod(startDate, endDate, leaveType='vacances', note='Congés', includeWeekends=false){
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  if (isNaN(start) || isNaN(end) || end < start) {
-    showToast('Période invalide', 'error');
-    return 0;
-  }
-  let count = 0;
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)){
-    const dateStr = ymdLocal(d);
-    if (!includeWeekends && TimeData.isWeekend(dateStr)) continue;
-    const data = {
-      date: dateStr,
-      start: '',
-      end: '',
-      pause: 0,
-      note: (note ? note+' ' : '') + '[' + leaveType + ']',
-      type: 'leave'
-    };
-    await TimeData.saveDay(dateStr, data);
-    count++;
-  }
-  showToast(`${count} jour(s) de congé ajoutés`, 'success');
-  return count;
-}
-
-function renderLeaveList(){
-  const container = document.getElementById('leave-list');
-  if (!container) return;
-  container.innerHTML = '';
-  const all = TimeData.getAll();
-  const entries = Object.entries(all)
-    .filter(([d, data]) => data && (data.type === 'leave'))
-    .sort((a,b) => a[0].localeCompare(b[0]));
-  if (entries.length === 0){
-    container.innerHTML = '<div class="p-3 text-sm text-gray-500">Aucun congé enregistré.</div>';
-    return;
-  }
-  for (const [date, data] of entries){
-    const row = document.createElement('div');
-    row.className = 'flex items-center justify-between p-2';
-    const label = document.createElement('div');
-    label.className = 'text-sm';
-    label.textContent = new Date(date).toLocaleDateString('fr-FR', { weekday:'short', year:'numeric', month:'short', day:'numeric' }) + (data.note? ' — '+data.note : '');
-    const btn = document.createElement('button');
-    btn.className = 'text-red-600 hover:underline text-sm';
-    btn.textContent = 'Supprimer';
-    btn.onclick = async () => {
-      await TimeData.deleteDay(date);
-      renderLeaveList();
-      // Refresh calendar if visible
-      const calBtn = document.querySelector('[data-tab="calendrier"]');
-      if (calBtn && calBtn.classList.contains('bg-blue-200')) {
-        try { loadCalendarView(); } catch(e){}
-      }
-    };
-    row.appendChild(label);
-    row.appendChild(btn);
-    container.appendChild(row);
-  }
-}
-
-function initCongesTab(){
-  const start = document.getElementById('leave-start');
-  const end = document.getElementById('leave-end');
-  const type = document.getElementById('leave-type');
-  const note = document.getElementById('leave-note');
-  const add = document.getElementById('leave-add');
-  const clear = document.getElementById('leave-clear');
-  if (start && end){
-    const today = new Date();
-    const ymd = ymdLocal(today);
-    start.value = ymd;
-    end.value = ymd;
-  }
-  if (add){
-    add.addEventListener('click', async () => {
-      await createLeavePeriod(start.value, end.value, type.value, note.value, false);
-      renderLeaveList();
-    });
-  }
-  if (clear){
-    clear.addEventListener('click', async () => {
-      const all = TimeData.getAll();
-      for (const [d, data] of Object.entries(all)){
-        if (data && data.type === 'leave'){
-          await TimeData.deleteDay(d);
-        }
-      }
-      renderLeaveList();
-      showToast('Tous les congés ont été supprimés', 'warning');
-    });
-  }
-  renderLeaveList();
-}
 // =====================================
 document.addEventListener('DOMContentLoaded', initApp);
 
 console.log('🔄 TimeTrack Simple chargé');
 console.log('🧪 Test Excel: TimeTrackDebug.testExcel()');
+// Convertit les données 'range' (objet {date: obj} ou tableau de lignes) en tableau de lignes standard
+function rowsFromRangeData(data){
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  const rows = Object.entries(data).map(([date, obj]) => {
+    const start = obj.start || obj.debut || '';
+    const end = obj.end || obj.fin || '';
+    const p = parseInt(obj.pause ?? 60) || 0;
+    const durMin = calculateDuration(start, end, p);
+    return [date, start, end, `${p} min`, formatMinutes(durMin), obj.note || ''];
+  });
+  rows.sort((a,b)=> a[0].localeCompare(b[0]));
+  return rows;
+}
+
