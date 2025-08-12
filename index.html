@@ -1,102 +1,246 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TimeTrack Simple</title>
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <meta name="theme-color" content="#0ea5e9" />
-  <link rel="icon" href="./icons/icon-192.png" />
-  <style>
-    :root { --bg:#0b1220; --card:#0f172a; --ink:#e2e8f0; --muted:#94a3b8; --accent:#22d3ee; }
-    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; background:linear-gradient(160deg,#0b1220 0%,#111827 100%); color:var(--ink);}
-    .wrap{max-width:960px;margin:0 auto;padding:24px}
-    .card{background:rgba(15,23,42,.7);border:1px solid rgba(148,163,184,.15);border-radius:18px;padding:18px;backdrop-filter: blur(6px);}
-    h1{margin:0 0 12px;font-weight:700;font-size:28px}
-    .grid{display:grid;gap:12px}
-    @media(min-width:800px){.grid{grid-template-columns: 1.5fr 1fr}}
-    label{display:block;margin-bottom:6px;color:var(--muted);font-size:14px}
-    input,select,button,textarea{width:100%;padding:10px 12px;border-radius:12px;border:1px solid rgba(148,163,184,.3);background:#0b1220;color:var(--ink)}
-    button{cursor:pointer;border:1px solid rgba(34,211,238,.35);}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    table{width:100%;border-collapse:collapse}
-    th,td{border-bottom:1px solid rgba(148,163,184,.15);padding:8px;font-size:14px}
-    th{color:var(--muted);font-weight:600;text-align:left}
-    .pill{display:inline-block;padding:2px 8px;border:1px solid rgba(148,163,184,.25);border-radius:999px;color:var(--muted);font-size:12px}
-    .ok{color:#22c55e}.warn{color:#f59e0b}.err{color:#ef4444}
-  </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="TimeTrack Perso — Google Sheets only" />
+  <link rel="manifest" href="./manifest.json" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <title>TimeTrack Perso</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>window.GAS_URL = "https://script.google.com/macros/s/AKfycbytSVwrFniXpF5BCasoxBkz48X2MZtsEb-xOY_R5LfBxr-0fCY7iIrC9nL7rkGy5E9smQ/exec";</script>
 </head>
-<body>
-  <div class="wrap">
-    <div class="card" style="margin-bottom:12px">
-      <h1>TimeTrack Simple</h1>
-      <div class="row">
-        <div>
-          <label>Identifiant utilisateur</label>
-          <input id="userId" placeholder="ex: aguedou" />
-        </div>
-        <div>
-          <label>Backend URL (Apps Script)</label>
-          <input id="baseUrl" placeholder="https://script.google.com/macros/s/XXXX/exec" />
-        </div>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-3xl mx-auto p-4">
+    <header class="flex items-center justify-between mb-4">
+      <h1 class="text-2xl font-bold">TimeTrack Perso</h1>
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-500">Statut</span>
+        <span id="status-indicator" class="ml-1 w-3 h-3 rounded-full bg-gray-300" title="Inconnu"></span>
       </div>
-      <div class="row" style="margin-top:8px">
-        <button id="saveCfg">💾 Enregistrer la config</button>
-        <button id="logout">🚪 Réinitialiser</button>
+    </header>
+
+    <div class="flex space-x-2 mb-4 overflow-x-auto" role="tablist">
+      <button class="tab-button font-semibold px-4 py-2 bg-blue-200 rounded whitespace-nowrap" data-tab="pointage" role="tab" aria-selected="true">Pointage</button>
+      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="hebdo" role="tab">Hebdo</button>
+      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="calendrier" role="tab">Calendrier</button>
+      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="conges" role="tab">Congés</button>
+      <button class="tab-button font-semibold px-4 py-2 bg-gray-200 rounded whitespace-nowrap" data-tab="export" role="tab">Export</button>
+    </div>
+
+    <!-- Pointage -->
+    <div class="tab-content" id="pointage" role="tabpanel">
+      <div class="grid grid-cols-2 gap-2 mb-4">
+        <button id="start" class="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded transition-colors">
+          <span class="block text-lg">▶️</span>
+          <span class="text-sm">Démarrer (remplit Début)</span>
+        </button>
+        <button id="stop" class="bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded transition-colors">
+          <span class="block text-lg">⏹️</span>
+          <span class="text-sm">Terminer (remplit Fin & enregistre)</span>
+        </button>
       </div>
-      <div style="margin-top:8px">
-        <span class="pill" id="pwaState">PWA: …</span>
-        <span class="pill" id="backendState">Backend: …</span>
+
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block">
+            <span class="text-sm font-medium">Début</span>
+            <input type="time" id="manualStart" class="w-full border rounded px-3 py-2" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Fin</span>
+            <input type="time" id="manualEnd" class="w-full border rounded px-3 py-2" />
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block">
+            <span class="text-sm font-medium">Pause (min)</span>
+            <input type="number" id="manualPause" class="w-full border rounded px-3 py-2" value="60" min="0" step="5" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Note</span>
+            <input type="text" id="manualNote" class="w-full border rounded px-3 py-2" placeholder="Optionnel" />
+          </label>
+        </div>
+
+        <div class="flex gap-2">
+          <button id="saveManual" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors">
+            Enregistrer aujourd'hui
+          </button>
+          <button id="deleteToday" class="bg-gray-300 hover:bg-gray-400 px-4 py-2 rounded transition-colors">
+            Supprimer aujourd'hui
+          </button>
+        </div>
+        <div id="current-duration" class="text-sm text-gray-600"></div>
       </div>
     </div>
 
-    <div class="grid">
-      <div class="card">
-        <h2 style="margin:0 0 10px">Pointage</h2>
-        <div class="row">
-          <button data-type="start">▶️ Début journée</button>
-          <button data-type="end">⏹️ Fin journée</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button data-type="pause_start">⏸️ Début pause</button>
-          <button data-type="pause_end">▶️ Fin pause</button>
-        </div>
-        <div style="margin-top:8px">
-          <label>Note (optionnelle)</label>
-          <input id="note" placeholder="ex: chantier ONU – zone B" />
-        </div>
+    <!-- Hebdo -->
+    <div class="tab-content hidden" id="hebdo" role="tabpanel">
+      <div class="flex items-center justify-between mb-2">
+        <button id="prevWeek" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">← Semaine -1</button>
+        <div id="weekTitle" class="font-semibold"></div>
+        <button id="nextWeek" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Semaine +1 →</button>
       </div>
+      <div id="weeklyTableWrapper" class="overflow-auto border rounded">
+        <table id="weeklyTable" class="min-w-full text-sm">
+          <thead class="bg-gray-100">
+            <tr>
+              <th class="px-3 py-2 text-left">Date</th>
+              <th class="px-3 py-2 text-left">Début</th>
+              <th class="px-3 py-2 text-left">Fin</th>
+              <th class="px-3 py-2 text-left">Pause</th>
+              <th class="px-3 py-2 text-left">Durée</th>
+              <th class="px-3 py-2 text-left">Note</th>
+              <th class="px-3 py-2 text-left">Type</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+          <tfoot class="bg-gray-50">
+            <tr>
+              <td class="px-3 py-2 font-semibold" colspan="4">Total</td>
+              <td id="weekTotal" class="px-3 py-2 font-semibold"></td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
 
-      <div class="card">
-        <h2 style="margin:0 0 10px">Consulter</h2>
-        <div class="row">
-          <div>
-            <label>Début</label>
-            <input id="startDate" type="date" />
-          </div>
-          <div>
-            <label>Fin</label>
-            <input id="endDate" type="date" />
-          </div>
+    <!-- Calendrier -->
+    <div class="tab-content hidden" id="calendrier" role="tabpanel">
+      <div class="flex items-center justify-between mb-2">
+        <button id="prevMonth" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">← Mois -1</button>
+        <div id="calendar-title" class="font-semibold"></div>
+        <button id="nextMonth" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Mois +1 →</button>
+      </div>
+      <div class="grid grid-cols-7 gap-2 text-xs text-gray-500 mb-1">
+        <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+      </div>
+      <div id="calendar-grid" class="grid grid-cols-7 gap-2"></div>
+    </div>
+
+    <!-- Congés -->
+    <div class="tab-content hidden" id="conges" role="tabpanel">
+      <div class="space-y-4">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-sm font-medium">Début</span>
+            <input type="date" id="leave-start" class="w-full border rounded px-3 py-2" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Fin</span>
+            <input type="date" id="leave-end" class="w-full border rounded px-3 py-2" />
+          </label>
         </div>
-        <div style="margin-top:8px" class="row">
-          <button id="loadRange">🔄 Charger</button>
-          <button id="today">📅 Aujourd’hui</button>
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-sm font-medium">Type</span>
+            <select id="leave-type" class="w-full border rounded px-3 py-2">
+              <option value="vacances">Vacances</option>
+              <option value="conge">Congé payé</option>
+              <option value="rtt">RTT</option>
+              <option value="maladie">Maladie</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Note</span>
+            <input type="text" id="leave-note" class="w-full border rounded px-3 py-2" placeholder="Optionnel (ex: S34)" />
+          </label>
+        </div>
+        <div class="flex gap-2">
+          <button id="leave-add" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors">Ajouter la période</button>
+          <button id="leave-clear" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors">Supprimer tous les congés listés</button>
+        </div>
+        <div>
+          <h3 class="font-semibold mb-2">Mes congés</h3>
+          <div id="leave-list" class="divide-y border rounded"></div>
         </div>
       </div>
     </div>
 
-    <div class="card" style="margin-top:12px">
-      <h2 style="margin:0 0 10px">Entrées</h2>
-      <table>
-        <thead>
-          <tr><th>Date/Heure</th><th>Type</th><th>Note</th></tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
+    <!-- Export -->
+    <div class="tab-content hidden" id="export" role="tabpanel">
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <label class="block">
+          <span class="text-sm font-medium">De</span>
+          <input type="date" id="export-start" class="w-full border rounded px-3 py-2" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">À</span>
+          <input type="date" id="export-end" class="w-full border rounded px-3 py-2" />
+        </label>
+      </div>
+      <div class="flex gap-2">
+        <button id="export-csv" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">Exporter CSV</button>
+      </div>
+    </div>
+
+    <!-- Modal Calendrier -->
+    <div id="calendar-modal" class="fixed inset-0 hidden bg-black/40 items-center justify-center">
+      <div class="bg-white rounded-xl shadow-xl p-4 w-full max-w-md">
+        <div class="flex items-center justify-between mb-2">
+          <div id="modal-date-label" class="font-semibold"></div>
+          <button id="modal-close" class="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200">✕</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <label class="block">
+            <span class="text-sm">Début</span>
+            <input type="time" id="modal-start" class="w-full border rounded px-2 py-1" />
+          </label>
+          <label class="block">
+            <span class="text-sm">Fin</span>
+            <input type="time" id="modal-end" class="w-full border rounded px-2 py-1" />
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-3">
+          <label class="block">
+            <span class="text-sm">Pause (min)</span>
+            <input type="number" id="modal-pause" class="w-full border rounded px-2 py-1" value="60" min="0" step="5" />
+          </label>
+          <label class="block">
+            <span class="text-sm">Type</span>
+            <select id="modal-type" class="w-full border rounded px-2 py-1">
+              <option value="normal">Normal</option>
+              <option value="leave">Congé</option>
+              <option value="holiday">Férié</option>
+            </select>
+          </label>
+        </div>
+        <label class="block mb-3">
+          <span class="text-sm">Note</span>
+          <input type="text" id="modal-note" class="w-full border rounded px-2 py-1" />
+        </label>
+        <div class="flex gap-2 justify-end">
+          <button id="modal-delete" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Supprimer</button>
+          <button id="modal-save" class="px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white">Enregistrer</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <script src="./script.js" defer></script>
+  <script src="./script.js"></script>
+  <script>
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('./service-worker.js')
+            .then(function(reg) { console.log('✅ SW OK:', reg.scope); })
+            .catch(function(err) { console.warn('❌ SW erreur:', err); });
+        });
+      }
+    }
+    function updateStatus(s) {
+      var el = document.getElementById('status-indicator');
+      if (!el) return;
+      if (s === 'online') { el.className = 'ml-1 w-3 h-3 rounded-full bg-green-500'; el.title='En ligne'; }
+      else { el.className = 'ml-1 w-3 h-3 rounded-full bg-red-500'; el.title='Hors ligne'; }
+    }
+    window.addEventListener('online', function() { updateStatus('online'); });
+    window.addEventListener('offline', function() { updateStatus('offline'); });
+    updateStatus(navigator.onLine ? 'online' : 'offline');
+  </script>
 </body>
 </html>

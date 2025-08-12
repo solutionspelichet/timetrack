@@ -1,26 +1,51 @@
-// SW ultra simple: cache shell + offline fallback
-const CACHE = 'tt-cache-v1';
-const ASSETS = [
+const CACHE_NAME = 'timetrack-v1.3.3';
+const STATIC_ASSETS = [
   './',
   './index.html',
   './script.js',
-  './manifest.webmanifest',
+  './manifest.json',
+  './icons/icon-72.png',
+  './icons/icon-96.png',
+  './icons/icon-128.png',
+  './icons/icon-144.png',
+  './icons/icon-152.png',
   './icons/icon-192.png',
-  './icons/icon-512.png',
+  './icons/icon-384.png',
+  './icons/icon-512.png'
 ];
 
-self.addEventListener('install', (e)=>{
-  e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(async cache => {
+      for (const url of STATIC_ASSETS) {
+        try { await cache.add(url); } catch (e) { /* skip broken asset */ }
+      }
+    })
+  );
+  self.skipWaiting();
 });
-self.addEventListener('activate', (e)=>{
-  e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(names => Promise.all(names.map(n => { if (n !== CACHE_NAME) return caches.delete(n); })))
+  );
+  self.clients.claim();
 });
-self.addEventListener('fetch', (e)=>{
-  const req = e.request;
-  // Network-first for API, Cache-first for assets
-  if(req.url.includes('script.google.com')){
-    e.respondWith(fetch(req).catch(()=>caches.match(req)));
-  } else {
-    e.respondWith(caches.match(req).then(cached=>cached || fetch(req)));
+
+// Cache-only for static assets; bypass Google Apps Script API
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (url.origin === location.origin) {
+    const inList = STATIC_ASSETS.some(a => {
+      const path = a.startsWith('./') ? a.slice(1) : a;
+      return url.pathname.endsWith(path);
+    });
+    if (inList) {
+      event.respondWith(
+        caches.match(event.request).then(r => r || fetch(event.request))
+      );
+      return;
+    }
   }
+  // Default: go to network for everything else
 });
