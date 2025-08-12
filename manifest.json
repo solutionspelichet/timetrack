@@ -2,7 +2,7 @@
   "name": "TimeTrack Perso",
   "short_name": "TimeTrack",
   "description": "Suivi du temps (Google Sheets)",
-  "start_url": "./",
+  "start_url": "./timetrack",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#2563eb",
