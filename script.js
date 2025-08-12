@@ -1,5 +1,5 @@
 // ==============================
-// TimeTrack (Google Sheets only) - ES2018 safe
+// TimeTrack (Google Sheets only) - ES2018 safe + Excel export
 // ==============================
 
 (function(){
@@ -21,15 +21,15 @@
     var day = String(d.getDate()).padStart(2,'0');
     return y + '-' + m + '-' + day;
   }
- function timeToMinutes(t){
-  if(!t) return 0;
-  var s = String(t);
-  var m = s.match(/(\d{1,2}):(\d{2})/);   // extrait HH:MM où qu’il soit
-  if(!m) return 0;
-  var h = parseInt(m[1],10)||0;
-  var mm = parseInt(m[2],10)||0;
-  return h*60+mm;
-}
+  function timeToMinutes(t){
+    if(!t) return 0;
+    var s = String(t);
+    var m = s.match(/(\d{1,2}):(\d{2})/);
+    if(!m) return 0;
+    var h = parseInt(m[1],10)||0;
+    var mm = parseInt(m[2],10)||0;
+    return h*60+mm;
+  }
   function minutesToHHMM(min){
     var h = Math.floor(min/60);
     var m = min%60;
@@ -44,7 +44,7 @@
     console.log('['+(type||'info')+']', msg);
   }
 
-  // ---------- API Google Apps Script ----------
+  // ---------- API Google Apps Script (form-encoded) ----------
   var API = {
     updateDay: function(date, data){
       var form = new URLSearchParams();
@@ -54,10 +54,8 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: form.toString()
-      }).then(function(r){
-        if(!r.ok) throw new Error('update failed');
-        return r.json().catch(function(){return {ok:true};});
-      });
+      }).then(function(r){ return r.json(); })
+        .then(function(j){ if(!j || j.ok!==true) throw new Error('update not ok'); return j; });
     },
     deleteDay: function(date){
       var form = new URLSearchParams();
@@ -66,14 +64,12 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: form.toString()
-      }).then(function(r){
-        if(!r.ok) throw new Error('delete failed');
-        return r.json().catch(function(){return {ok:true};});
-      });
+      }).then(function(r){ return r.json(); })
+        .then(function(j){ if(!j || j.ok!==true) throw new Error('delete not ok'); return j; });
     },
     getRange: function(start, end){
       return fetch(CONFIG.GAS_URL+'?action=range&start='+start+'&end='+end)
-        .then(function(r){ if(!r.ok) throw new Error('range failed'); return r.json(); })
+        .then(function(r){ return r.json(); })
         .then(function(obj){ return obj || {}; });
     }
   };
@@ -141,7 +137,7 @@
     if(delToday){ delToday.addEventListener('click', function(){
       var date = ymdLocal(new Date());
       API.deleteDay(date).then(function(){ showToast('Jour supprimé','warning'); })
-        .catch(function(){ showToast('Suppression échouée','error'); });
+        .catch(function(err){ showToast('Suppression échouée: '+err.message,'error'); });
     });}
 
     ['change','input'].forEach(function(ev){
@@ -163,8 +159,9 @@
       data.duration = minutesToHHMM(calcDuration(data.start, data.end, data.pause));
       API.updateDay(date, data).then(function(){
         showToast('Jour enregistré','success');
-      }).catch(function(){
-        showToast('Échec enregistrement','error');
+        loadWeeklyView(); loadCalendarView();
+      }).catch(function(err){
+        showToast('Échec enregistrement: '+err.message,'error');
       });
     }
   }
@@ -299,12 +296,12 @@
       payload.duration = minutesToHHMM(calcDuration(payload.start,payload.end,payload.pause));
       API.updateDay(date, payload).then(function(){
         showToast('Enregistré','success'); loadCalendarView(); loadWeeklyView();
-      }).catch(function(){ showToast('Échec enregistrement','error'); });
+      }).catch(function(err){ showToast('Échec enregistrement: '+err.message,'error'); });
       modal.classList.add('hidden'); modal.classList.remove('flex');
     };
     document.getElementById('modal-delete').onclick = function(){
       API.deleteDay(date).then(function(){ showToast('Supprimé','warning'); loadCalendarView(); loadWeeklyView(); })
-      .catch(function(){ showToast('Échec suppression','error'); });
+      .catch(function(err){ showToast('Échec suppression: '+err.message,'error'); });
       modal.classList.add('hidden'); modal.classList.remove('flex');
     };
   }
@@ -385,15 +382,35 @@
   function toCSV(rows){
     return rows.map(function(r){
       return r.map(function(v){
-        v = (v==null?'':String(v)).replace(/"/g,'""');
-        return '"'+v+'"';
+        v = (v==null?'':String(v)).replace(/\"/g,'\"\"');
+        return '\"'+v+'\"';
       }).join(';');
     }).join('\n');
+  }
+  function exportXlsx(start, end) {
+    API.getRange(start, end).then(function (data) {
+      var header = ['date','start','end','pause','duration','note','type'];
+      var rows = [header];
+      Object.keys(data).sort().forEach(function (d) {
+        var v = data[d] || {};
+        var pauseVal = (typeof v.pause!=='undefined' && v.pause!==null) ? Number(v.pause) : 60;
+        rows.push([ d, v.start||'', v.end||'', pauseVal, v.duration||'', v.note||'', v.type||'normal' ]);
+      });
+      var ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = [ {wch:10},{wch:6},{wch:6},{wch:6},{wch:7},{wch:30},{wch:10} ];
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'TimeTrack');
+      var fname = 'timetrack_' + start + '_au_' + end + '.xlsx';
+      XLSX.writeFile(wb, fname);
+    }).catch(function (e) {
+      console.warn('xlsx export err', e);
+    });
   }
   function initExportTab(){
     var startInput = document.getElementById('export-start');
     var endInput = document.getElementById('export-end');
     var btnCsv = document.getElementById('export-csv');
+    var btnXlsx = document.getElementById('export-xlsx');
     var today = new Date();
     var firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
     var lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0);
@@ -407,8 +424,7 @@
         Object.keys(data).sort().forEach(function(d){
           var v = data[d] || {};
           var pauseVal = (typeof v.pause!=='undefined' && v.pause!==null) ? Number(v.pause) : 60;
-          var dur = minutesToHHMM(calcDuration(v.start, v.end, pauseVal));
-          rows.push([d, v.start||'', v.end||'', pauseVal, dur, v.note||'', v.type||'normal']);
+          rows.push([d, v.start||'', v.end||'', pauseVal, v.duration||'', v.note||'', v.type||'normal']);
         });
         var csv = toCSV(rows);
         var blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
@@ -417,6 +433,12 @@
         URL.revokeObjectURL(url);
       });
     });}
+    if(btnXlsx){
+      btnXlsx.addEventListener('click', function(){
+        var start = startInput.value, end = endInput.value;
+        exportXlsx(start, end);
+      });
+    }
   }
 
   // ---------- Boot ----------

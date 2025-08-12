@@ -7,9 +7,9 @@
   <link rel="manifest" href="./manifest.json" />
   <meta name="theme-color" content="#2563eb" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="icon" href="./favicon.ico" sizes="any" />
   <title>TimeTrack Perso</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- GAS URL injectée -->
   <script>window.GAS_URL = "https://script.google.com/macros/s/AKfycbytSVwrFniXpF5BCasoxBkz48X2MZtsEb-xOY_R5LfBxr-0fCY7iIrC9nL7rkGy5E9smQ/exec";</script>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -175,6 +175,7 @@
       </div>
       <div class="flex gap-2">
         <button id="export-csv" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded">Exporter CSV</button>
+        <button id="export-xlsx" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded">Exporter Excel (.xlsx)</button>
       </div>
     </div>
 
@@ -221,8 +222,11 @@
     </div>
   </div>
 
+  <!-- SheetJS pour export Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="./script.js"></script>
   <script>
+    // SW: register only on http/https
     if (location.protocol === 'http:' || location.protocol === 'https:') {
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
